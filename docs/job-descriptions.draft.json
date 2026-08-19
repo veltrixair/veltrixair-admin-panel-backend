@@ -1,0 +1,314 @@
+{
+  "_meta": {
+    "status": "DRAFT — NOT APPLIED TO THE DATABASE",
+    "purpose": "Starter long-form copy for the 14 roles listed on /careers/. Review and edit before applying.",
+    "howToApply": [
+      "1. Review and edit the entries below.",
+      "2. Preview:  node scripts/apply-job-content.js",
+      "3. Apply:    node scripts/apply-job-content.js --apply"
+    ],
+    "grounding": "Facts are taken from the live careers page: practice, location, experience band, employment type, the four stated culture points, the published benefits list, and the visa policy ('sponsorship for KSA/UAE senior roles; India is local-hire only'). Nothing about salary figures, headcount targets or client names has been invented.",
+    "reviewNotes": [
+      "visaSponsorship for R-014 is null — the role is 'Remote (KSA / India)' and the published policy differs by country. Set it deliberately.",
+      "No compensation figures are stated anywhere. The careers page says 'top-of-market base, benchmarked annually'; that phrasing is reused rather than quantified.",
+      "Requirements are written as bands consistent with the advertised experience range. Tighten them to your actual bar before publishing.",
+      "Each description avoids naming clients or engagements. Add specifics only where you are comfortable publishing them."
+    ]
+  },
+  "jobs": [
+    {
+      "refCode": "R-001",
+      "summary": "Build regulated enterprise software for clients across KSA, from the Riyadh headquarters, with your name on the engagement charter.",
+      "descriptionMdx": "## About the role\n\nThe Custom Software practice builds systems for organisations that cannot afford to get compliance wrong — banking, government, energy and healthcare clients operating under KSA regulation. You will work directly on client engagements rather than on internal abstractions, and you will be named on the engagement charter alongside the partner who owns it.\n\n## How we work\n\nSenior practitioners, not pyramids. Engagements are staffed with small teams of experienced engineers who talk to the client directly, own delivery end to end, and have a direct line to a senior partner. There is no layer of delivery management between you and the problem.\n\nThis role is based at the Riyadh headquarters, where all six practices sit together.",
+      "responsibilities": [
+        "Design and deliver production systems on client engagements from discovery through to handover",
+        "Own technical decisions on your workstream and document the reasoning behind them",
+        "Work directly with client engineering and compliance stakeholders",
+        "Review peers' work and raise the standard of the codebase you are responsible for",
+        "Contribute to engagement estimates and technical proposals"
+      ],
+      "requirements": [
+        "5–8 years building and operating production software",
+        "Depth in at least one modern backend stack, and comfort moving between languages",
+        "Experience delivering into regulated or audited environments",
+        "Able to work directly with non-technical stakeholders and hold a position under scrutiny",
+        "Based in or willing to relocate to Riyadh"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "Senior Software Engineer — Custom Software Practice, Riyadh. Build regulated enterprise systems for banking, government and energy clients at Veltrixair."
+    },
+    {
+      "refCode": "R-002",
+      "summary": "Own the internal developer platform that every Veltrixair engagement is delivered on, across three jurisdictions.",
+      "descriptionMdx": "## About the role\n\nEvery engagement we deliver runs on a shared platform: the pipelines, environments, golden paths and self-service tooling that let small teams ship regulated software quickly. This role owns that platform.\n\nIt is a staff-level position, which here means scope rather than seniority theatre — you set the direction of the platform, decide what becomes a paved road and what stays bespoke, and are accountable for the developer experience across Riyadh, Dubai and Bangalore.\n\n## What makes it hard\n\nThe platform has to serve three offices under three regulatory regimes, and the constraints are not the same in each. Getting that right without fragmenting into three platforms is the central problem of the role.",
+      "responsibilities": [
+        "Own the architecture and roadmap of the internal developer platform",
+        "Build self-service infrastructure that engagement teams can use without platform involvement",
+        "Define the golden paths for provisioning, deployment and observability",
+        "Work with the security and privacy practices to make compliant defaults the easy option",
+        "Mentor engineers across practices on platform usage and patterns"
+      ],
+      "requirements": [
+        "8+ years in infrastructure, platform or backend engineering",
+        "Demonstrated ownership of a platform used by other engineering teams",
+        "Deep experience with infrastructure as code, CI/CD and container orchestration",
+        "Able to weigh developer experience against regulatory constraint and defend the trade-off",
+        "Comfortable operating across multiple regions and compliance regimes"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "Staff Platform Engineer — Internal Developer Platform, Riyadh (hybrid). Own the platform behind every Veltrixair engagement across three jurisdictions."
+    },
+    {
+      "refCode": "R-003",
+      "summary": "Build backend services in Python and Django from the Bangalore delivery centre, on engagements that reach production.",
+      "descriptionMdx": "## About the role\n\nThe Bangalore delivery centre is the largest of our three offices and carries much of the Software, Platform and Privacy delivery. This is a hands-on backend role building services that go into client production environments — not internal tooling, and not proof-of-concept work.\n\n## What you can expect\n\nYou will be given real ownership early. Engagements are small enough that a mid-level engineer holds meaningful surface area, with a practice lead close enough to review the work properly. If you have spent time on teams where you shipped tickets without seeing the outcome, this is the opposite of that.",
+      "responsibilities": [
+        "Build and maintain backend services in Python and Django on client engagements",
+        "Design data models and APIs, and write the migrations that go with them",
+        "Write tests that give the team confidence to deploy",
+        "Participate in code review and technical design discussions",
+        "Support what you build through to a stable handover"
+      ],
+      "requirements": [
+        "3–5 years building backend services in production",
+        "Strong Python, with practical Django experience",
+        "Comfortable with relational data modelling and SQL",
+        "Familiar with testing, CI and code review as everyday practice",
+        "Based in Bangalore — this role is local hire"
+      ],
+      "visaSponsorship": false,
+      "seoDescription": "Software Engineer — Backend (Python / Django), Bangalore. Build production backend services on client engagements at Veltrixair's delivery centre."
+    },
+    {
+      "refCode": "R-004",
+      "summary": "Run and improve the delivery infrastructure behind client engagements, from Bangalore or remotely within India.",
+      "descriptionMdx": "## About the role\n\nThis role sits in the Platform practice and keeps client-facing systems running: build pipelines, environments, monitoring and the operational discipline around releases. You will work across several engagements rather than being embedded in one, so breadth matters more than depth in any single client's stack.\n\n## Remote arrangement\n\nThe role can be worked remotely within India, with periodic time at the Bangalore delivery centre. Fully remote arrangements are available for selected senior roles and this is one of them — but it is a collaborative role, and the expectation is availability during Bangalore working hours.",
+      "responsibilities": [
+        "Own CI/CD pipelines and deployment tooling across multiple engagements",
+        "Provision and maintain cloud infrastructure as code",
+        "Set up monitoring, alerting and on-call practice for delivered systems",
+        "Automate the operational work that would otherwise be repeated by hand",
+        "Work with engagement teams on release readiness and production support"
+      ],
+      "requirements": [
+        "5+ years in DevOps, SRE or platform operations",
+        "Strong infrastructure-as-code experience",
+        "Practical knowledge of containers, orchestration and cloud networking",
+        "Comfortable being the person called when a production system misbehaves",
+        "Based in India — this role is local hire"
+      ],
+      "visaSponsorship": false,
+      "seoDescription": "Senior DevOps Engineer, Bangalore or remote within India. Own delivery infrastructure and release operations across Veltrixair engagements."
+    },
+    {
+      "refCode": "R-005",
+      "summary": "Tier 2 analysis in a sovereign security operations centre in Riyadh, on a 24/7 shift rotation.",
+      "descriptionMdx": "## About the role\n\nThis is a Tier 2 position in our sovereign SOC — escalated analysis, not first-line triage. You will take on alerts that Tier 1 could not close, run the investigation, decide whether it is an incident, and own the write-up.\n\n## Shift pattern\n\nThe SOC operates 24/7 and this role is part of that rotation. Shift allowances and rest patterns are covered in the offer conversation. It is a demanding pattern and we are direct about that up front rather than after you have interviewed.\n\n## Sovereign context\n\nSovereign operations means the data, the tooling and the analysts stay within the Kingdom. If you have worked in offshore SOCs, expect the constraints here to be tighter and the client relationship to be closer.",
+      "responsibilities": [
+        "Investigate escalated alerts and determine whether they constitute an incident",
+        "Perform host, network and log analysis to establish scope and impact",
+        "Own incident documentation and hand off to response with a clear picture",
+        "Tune detections and reduce false positives based on what you see",
+        "Mentor Tier 1 analysts on triage quality"
+      ],
+      "requirements": [
+        "3+ years in a security operations centre, with time at Tier 2 or equivalent",
+        "Hands-on investigation experience across endpoint and network telemetry",
+        "Working knowledge of a modern SIEM and detection engineering basics",
+        "Able to write an incident narrative that a non-technical stakeholder can act on",
+        "Willing and able to work a 24/7 shift rotation in Riyadh"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "SOC Analyst — Tier 2, Sovereign Operations, Riyadh. Escalated investigation and detection tuning in a 24/7 sovereign security operations centre."
+    },
+    {
+      "refCode": "R-006",
+      "summary": "Design cloud security architecture for regulated clients across the GCC, based in Dubai.",
+      "descriptionMdx": "## About the role\n\nThe Cybersecurity practice is risk-led rather than control-led: the work starts with what the client is actually exposed to, and the architecture follows. This role owns the cloud security architecture on those engagements — landing zones, identity, segmentation, data protection and the evidence that it all holds together.\n\n## Regional scope\n\nDubai covers our Growth, Cyber and Business Applications work across the GCC, with travel to client sites and to Riyadh as engagements require. Cross-office travel is covered.\n\nYou will work alongside the Data Privacy practice frequently — in this region, security architecture and data-protection obligations are rarely separable.",
+      "responsibilities": [
+        "Design cloud security architecture for client environments across the GCC",
+        "Lead threat modelling and architecture review on engagements",
+        "Define identity, segmentation and data-protection controls, and the evidence for them",
+        "Advise client architects and translate regulatory obligation into technical design",
+        "Support the practice in proposal and assurance work"
+      ],
+      "requirements": [
+        "7+ years in security, with substantial time in cloud security architecture",
+        "Depth in at least one major cloud provider's security model",
+        "Experience mapping regulatory requirements onto technical controls",
+        "Able to present and defend an architecture to a client's security leadership",
+        "Based in or willing to relocate to Dubai"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "Cloud Security Architect, Dubai. Lead cloud security architecture for regulated clients across the GCC at Veltrixair."
+    },
+    {
+      "refCode": "R-007",
+      "summary": "Lead PDPL and GDPR programmes for clients operating across KSA, the GCC and Europe.",
+      "descriptionMdx": "## About the role\n\nThis is a senior advisory role in the Data Privacy practice, leading client programmes under KSA PDPL and GDPR — and frequently both at once, because the clients we serve rarely operate in a single jurisdiction.\n\n## Multi-jurisdiction by default\n\nOur privacy work is not single-regime. A typical programme touches PDPL, GDPR, and often India's DPDP or UAE data protection law, with the interesting work sitting in the places where the obligations diverge rather than where they align. If you have only ever worked one regime, this will stretch you.\n\n## Scope\n\nYou will own client relationships at programme level, not just deliverables — the advisory position, the escalations and the outcome.",
+      "responsibilities": [
+        "Lead client privacy programmes under PDPL, GDPR and adjacent regimes",
+        "Run data mapping, DPIAs, and lawful-basis and transfer assessments",
+        "Advise client leadership on regulatory exposure and remediation priority",
+        "Draft and review the policies, notices and records that evidence compliance",
+        "Support engineering and security colleagues in making designs defensible"
+      ],
+      "requirements": [
+        "6+ years in data protection or privacy advisory",
+        "Direct programme experience under GDPR, and working knowledge of KSA PDPL",
+        "Comfortable advising senior stakeholders on ambiguous regulatory questions",
+        "Able to work with technical teams on implementation, not just documentation",
+        "Based in or willing to relocate to Riyadh"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "Senior Privacy Advisor — PDPL & GDPR Programmes, Riyadh (hybrid). Lead multi-jurisdiction privacy programmes at Veltrixair."
+    },
+    {
+      "refCode": "R-008",
+      "summary": "Support India DPDP 2023 advisory work from the Bangalore delivery centre, alongside senior privacy practitioners.",
+      "descriptionMdx": "## About the role\n\nIndia's DPDP Act 2023 is new enough that most organisations are still working out what compliance means in practice. This role supports that advisory work: the assessments, the documentation and the analysis that sit underneath a client programme.\n\n## Growing into the practice\n\nThis is an associate-level position and it is structured as one. You will work alongside senior advisors rather than carrying client programmes alone, with the expectation that you take on more scope as your judgement develops. Written and verbal feedback is part of how the practice runs, not an annual event.\n\nBangalore carries the Software, Platform and Privacy practices, so you will sit close to the engineers whose systems you are assessing.",
+      "responsibilities": [
+        "Support DPDP assessments, data mapping and gap analysis on client engagements",
+        "Draft privacy documentation for senior review",
+        "Research regulatory developments and summarise their practical impact",
+        "Work with engineering teams to understand how systems actually process data",
+        "Maintain the records and registers that evidence a client's compliance position"
+      ],
+      "requirements": [
+        "2–4 years in privacy, compliance, legal or a closely related field",
+        "Working knowledge of India DPDP 2023; exposure to GDPR is an advantage",
+        "Strong written English — much of the output is documentation others rely on",
+        "Curious about how systems work, not only about what policy says",
+        "Based in Bangalore — this role is local hire"
+      ],
+      "visaSponsorship": false,
+      "seoDescription": "Privacy Associate — India DPDP Practice, Bangalore. Support DPDP 2023 advisory programmes alongside senior privacy practitioners at Veltrixair."
+    },
+    {
+      "refCode": "R-009",
+      "summary": "Lead the service desk behind SLA-backed managed IT operations, based in Riyadh.",
+      "descriptionMdx": "## About the role\n\nManaged IT Services runs 24/7 with SLAs behind it, and the service desk is where clients experience whether that promise is real. This role leads it: the team, the queue, the escalation discipline and the reporting that goes back to the client.\n\n## What good looks like\n\nThe measure of this role is not ticket volume. It is whether issues are resolved at the right tier, whether the same problem stops recurring, and whether the client's own leadership trusts the numbers you publish. You will have the authority to change process to achieve that.\n\nBased at the Riyadh headquarters, working the Sunday–Thursday week.",
+      "responsibilities": [
+        "Lead the service desk team and own queue health and SLA performance",
+        "Set and enforce escalation and prioritisation discipline",
+        "Own client-facing service reporting and service review meetings",
+        "Drive problem management so recurring incidents are eliminated, not absorbed",
+        "Develop the team through coaching and structured feedback"
+      ],
+      "requirements": [
+        "5+ years in IT service management, including team leadership",
+        "Experience running an SLA-backed service desk for external clients",
+        "Working knowledge of ITIL practice, applied rather than certified-only",
+        "Able to hold a service review with a client executive and be believed",
+        "Based in or willing to relocate to Riyadh"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "Service Desk Lead — Managed IT Operations, Riyadh. Lead an SLA-backed 24/7 service desk at Veltrixair."
+    },
+    {
+      "refCode": "R-010",
+      "summary": "Deliver Odoo implementations for enterprise clients across Dubai and Riyadh, owning the functional design.",
+      "descriptionMdx": "## About the role\n\nThe Business Applications practice implements integrated enterprise systems, with Odoo as a core platform. This is a functional role: you own the requirements, the process design and the configuration, and you are the person the client's finance or operations lead talks to.\n\n## Split location\n\nThe role covers both Dubai and Riyadh engagements, with travel between the two. That means working across two different working weeks — Dubai runs Monday to Friday, Riyadh runs Sunday to Thursday — which is a genuine feature of the job rather than an edge case. Cross-office travel is covered.",
+      "responsibilities": [
+        "Run requirements gathering and process design workshops with client teams",
+        "Configure Odoo modules to the agreed design and document the decisions",
+        "Own functional testing, user acceptance and go-live readiness",
+        "Train client users and hand over cleanly",
+        "Work with developers where configuration is not sufficient"
+      ],
+      "requirements": [
+        "4+ years implementing Odoo or comparable ERP platforms in a functional role",
+        "Strong grasp of core business processes — finance, procurement, inventory or similar",
+        "Able to run a workshop with client stakeholders and drive it to a decision",
+        "Comfortable working across Dubai and Riyadh engagements and working weeks",
+        "Based in or willing to relocate to the UAE or KSA"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "Odoo Functional Consultant — Business Applications, Dubai / Riyadh. Own functional design and delivery of enterprise Odoo implementations at Veltrixair."
+    },
+    {
+      "refCode": "R-011",
+      "summary": "Deliver ZATCA Phase 2 e-invoicing integrations for enterprise clients across the Kingdom.",
+      "descriptionMdx": "## About the role\n\nZATCA Phase 2 integration is unforgiving work: the requirements are specific, the validation is externally enforced, and a client's invoicing stops if it is wrong. This role owns those integrations end to end — the mapping from the client's ERP to the required schema, the connection itself, and the evidence that it behaves correctly.\n\n## Why it matters\n\nE-invoicing compliance is not a project a client can quietly defer. That gives the work an unusual property: the deadline is real, the acceptance criteria are published, and success is unambiguous. If you like problems with a definite answer, this is one.\n\nBased at the Riyadh headquarters.",
+      "responsibilities": [
+        "Design and deliver ZATCA Phase 2 integrations against client ERP systems",
+        "Own the mapping from invoice data to the required schema and validation rules",
+        "Build and test the integration through to production and regulatory acceptance",
+        "Diagnose rejections and validation failures, and resolve them with the client",
+        "Document the integration so the client's own team can operate it"
+      ],
+      "requirements": [
+        "3+ years integrating enterprise finance or ERP systems",
+        "Hands-on experience with ZATCA Phase 1 or Phase 2 e-invoicing",
+        "Comfortable with API integration, XML/JSON schemas and digital signing concepts",
+        "Methodical about testing and evidence — this work is externally audited",
+        "Based in or willing to relocate to Riyadh"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "ZATCA Phase 2 Integration Consultant, Riyadh. Deliver compliant e-invoicing integrations for enterprise clients at Veltrixair."
+    },
+    {
+      "refCode": "R-012",
+      "summary": "Own B2B content strategy for a firm selling regulated enterprise technology, from Dubai or remotely.",
+      "descriptionMdx": "## About the role\n\nWe sell complex, regulated services to senior buyers who can tell the difference between substance and marketing copy. This role owns the content strategy that reaches them: what we publish, who writes it, and whether it earns attention from people who are hard to reach.\n\n## What this is not\n\nIt is not volume content. Our published position is 'no promotion, no SDR follow-up' — the Insights channel exists to be genuinely useful to practitioners in banking, government, energy and healthcare. Content that reads like lead bait undermines the thing it is meant to support.\n\nYou will work closely with the practice leads whose expertise the content depends on, which means much of the job is extracting clear thinking from busy specialists.",
+      "responsibilities": [
+        "Own the B2B content strategy and editorial calendar across practices",
+        "Commission, edit and shape content from practice leads and senior practitioners",
+        "Write flagship pieces yourself where the topic demands it",
+        "Own distribution and measure what actually reaches the intended audience",
+        "Maintain a consistent voice across a firm with strong individual opinions"
+      ],
+      "requirements": [
+        "5+ years in B2B content strategy, ideally for technology or professional services",
+        "Demonstrated ability to make technical subject matter genuinely readable",
+        "Editorial judgement — able to tell a practice lead their draft is not ready",
+        "Comfortable measuring content on outcome rather than output",
+        "Based in the UAE, or remote with overlap to Dubai working hours"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "B2B Content Strategist — Digital & Growth, Dubai or remote. Own content strategy for a regulated enterprise technology firm at Veltrixair."
+    },
+    {
+      "refCode": "R-013",
+      "summary": "Run shared services operations across three offices from the Riyadh headquarters.",
+      "descriptionMdx": "## About the role\n\nThis role runs the operational backbone that lets three offices in three jurisdictions function as one firm — the processes, the vendors, the reporting and the administrative machinery behind delivery.\n\n## The interesting part\n\nRiyadh, Dubai and Bangalore operate under different labour rules, different working weeks and different regulatory expectations. Shared services means finding the level at which a process can genuinely be common and being honest about where it cannot. Most of the difficulty in this role is that judgement rather than the execution.\n\nBased at the Riyadh headquarters, working Sunday to Thursday.",
+      "responsibilities": [
+        "Own shared operational processes across the Riyadh, Dubai and Bangalore offices",
+        "Manage vendor relationships and the commercial administration behind them",
+        "Produce the operational reporting leadership uses to make decisions",
+        "Identify where a common process is possible and where local variation is required",
+        "Support the practices with the operational groundwork engagements depend on"
+      ],
+      "requirements": [
+        "6+ years in operations or shared services management",
+        "Experience operating across more than one country or regulatory regime",
+        "Strong process design instincts and the discipline to document them",
+        "Able to work with senior stakeholders across functions and offices",
+        "Based in or willing to relocate to Riyadh"
+      ],
+      "visaSponsorship": true,
+      "seoDescription": "Operations Manager — Shared Services, Riyadh. Run cross-office operations across three jurisdictions at Veltrixair."
+    },
+    {
+      "refCode": "R-014",
+      "summary": "Build Voice AI and LLM systems for regulated enterprise clients, working remotely within KSA or India.",
+      "descriptionMdx": "## About the role\n\nThe Voice AI and LLM practice builds conversational and language systems for clients who cannot treat model behaviour as a black box. That constraint shapes the engineering: evaluation, guardrails, traceability and data handling matter as much as model performance.\n\n## Governance is part of the job\n\nOur clients operate under PDPL, DPDP and GDPR, and we work to ISO 42001 alignment for AI management. This is not a research role where governance arrives later — the person building the system is expected to be able to explain how it behaves and why that is defensible.\n\n## Remote arrangement\n\nThe role is remote within KSA or India, with periodic travel to Riyadh or Bangalore. Overlap with your practice's working hours is expected.",
+      "responsibilities": [
+        "Build and ship Voice AI and LLM-based systems on client engagements",
+        "Design evaluation and guardrail strategies before systems reach production",
+        "Own data handling decisions in line with the client's regulatory position",
+        "Work with the privacy and security practices on AI governance requirements",
+        "Take systems from prototype to something a regulated client can operate"
+      ],
+      "requirements": [
+        "4+ years in machine learning or AI engineering, with production experience",
+        "Hands-on work with LLMs, retrieval systems or speech pipelines",
+        "Strong software engineering fundamentals — this is a shipping role",
+        "Able to reason about model behaviour, evaluation and failure modes rigorously",
+        "Based in KSA or India"
+      ],
+      "visaSponsorship": null,
+      "seoDescription": "AI / ML Engineer — Voice AI & LLM Practice, remote (KSA / India). Build governed Voice AI and LLM systems for regulated clients at Veltrixair."
+    }
+  ]
+}

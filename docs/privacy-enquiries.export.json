@@ -1,0 +1,163 @@
+{
+  "enquiries": [
+    {
+      "id": "a44ee347-34cd-4e08-9003-f0f583d1c2b5",
+      "reference_no": "VLX-2026-000021",
+      "topic_code": 303,
+      "full_name": "Aisha Rahman",
+      "company": "Gulf Retail Group",
+      "role_title": "Head of Legal",
+      "work_email": "aisha.rahman@example.com",
+      "phone": "+966 55 000 0000",
+      "country_code": null,
+      "industry_code": null,
+      "timeline_code": null,
+      "message": "We need a DPIA across three customer-facing systems before launch.",
+      "requires_nda": false,
+      "consent_at": null,
+      "privacy_notice_version": "privacy-notice-2026-08-01",
+      "office_code": 301,
+      "routed_to_email": "info@veltrixair.com",
+      "sla_due_at": "2026-08-16T15:00:00.000Z",
+      "first_responded_at": "2026-08-13T12:45:52.118Z",
+      "status": "QUALIFYING",
+      "assigned_to": "privacy.lead@veltrixair.com",
+      "source_page": null,
+      "utm_source": null,
+      "utm_medium": null,
+      "utm_campaign": null,
+      "ip_hash": "3f63081c83dce74764c65c9f76eb3d2a4903120fb39221da7ab16408628ef7c4",
+      "user_agent": "PostmanRuntime/7.56.0",
+      "spam_score": 0,
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_date": "2026-08-13T11:50:41.420Z",
+      "updated_date": "2026-08-13T12:41:34.704Z",
+      "site_code": 103,
+      "jurisdiction_code": 301,
+      "lawful_basis": "LEGITIMATE_INTEREST",
+      "jurisdiction_name": "KSA — Saudi Arabia",
+      "regulation": "PDPL",
+      "topic_name": "Privacy Impact & Risk Assessments (DPIA / PIA / TIA)",
+      "route_email": "info@veltrixair.com",
+      "office_name": "Riyadh"
+    },
+    {
+      "id": "5d4d15fc-aeef-4c8f-9fa7-294fe328a0a2",
+      "reference_no": "VLX-2026-000022",
+      "topic_code": 303,
+      "full_name": "Adil Bakshi",
+      "company": "Indian Retail Group",
+      "role_title": "Head of ilLegal",
+      "work_email": "adil@example.com",
+      "phone": "+91 7047347709",
+      "country_code": null,
+      "industry_code": null,
+      "timeline_code": null,
+      "message": "We are in need of  a AI across three customer-facing systems before launch.",
+      "requires_nda": false,
+      "consent_at": null,
+      "privacy_notice_version": "privacy-notice-2026-08-01",
+      "office_code": 301,
+      "routed_to_email": "info@veltrixair.com",
+      "sla_due_at": "2026-08-16T15:00:00.000Z",
+      "first_responded_at": null,
+      "status": "NEW",
+      "assigned_to": null,
+      "source_page": null,
+      "utm_source": null,
+      "utm_medium": null,
+      "utm_campaign": null,
+      "ip_hash": "3f63081c83dce74764c65c9f76eb3d2a4903120fb39221da7ab16408628ef7c4",
+      "user_agent": "PostmanRuntime/7.56.0",
+      "spam_score": 0,
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_date": "2026-08-13T12:46:13.868Z",
+      "updated_date": "2026-08-13T12:46:13.868Z",
+      "site_code": 103,
+      "jurisdiction_code": 301,
+      "lawful_basis": "LEGITIMATE_INTEREST",
+      "jurisdiction_name": "KSA — Saudi Arabia",
+      "regulation": "PDPL",
+      "topic_name": "Privacy Impact & Risk Assessments (DPIA / PIA / TIA)",
+      "route_email": "info@veltrixair.com",
+      "office_name": "Riyadh"
+    }
+  ],
+  "events": [
+    {
+      "id": "b822d8ee-c361-43f2-b8aa-a618958916c5",
+      "enquiry_id": "a44ee347-34cd-4e08-9003-f0f583d1c2b5",
+      "event_type": "CREATED",
+      "actor": null,
+      "note": null,
+      "metadata": {
+        "office": "Riyadh",
+        "routedTo": "info@veltrixair.com",
+        "spamScore": 0,
+        "spamReasons": []
+      },
+      "created_date": "2026-08-13T11:50:41.420Z"
+    },
+    {
+      "id": "e3289c81-781c-4b7e-a994-d0585bbf5bff",
+      "enquiry_id": "a44ee347-34cd-4e08-9003-f0f583d1c2b5",
+      "event_type": "NOTIFICATION_SENT",
+      "actor": null,
+      "note": null,
+      "metadata": {
+        "routedTo": "info@veltrixair.com"
+      },
+      "created_date": "2026-08-13T11:50:42.320Z"
+    },
+    {
+      "id": "8f79fb1e-69dd-4afb-8297-079d3d347746",
+      "enquiry_id": "a44ee347-34cd-4e08-9003-f0f583d1c2b5",
+      "event_type": "ASSIGNED",
+      "actor": "admin@veltrixair.com",
+      "note": null,
+      "metadata": {
+        "assignedTo": "privacy.lead@veltrixair.com"
+      },
+      "created_date": "2026-08-13T12:40:08.876Z"
+    },
+    {
+      "id": "cd49e1a8-22d0-4670-b7e6-af0fd06c594e",
+      "enquiry_id": "a44ee347-34cd-4e08-9003-f0f583d1c2b5",
+      "event_type": "STATUS_CHANGED",
+      "actor": "admin@veltrixair.com",
+      "note": "Scoping call booked with the practice.",
+      "metadata": {
+        "to": "QUALIFYING",
+        "from": "NEW"
+      },
+      "created_date": "2026-08-13T12:41:34.879Z"
+    },
+    {
+      "id": "9c754359-fc63-4865-a2fa-23bc2ff0ac7c",
+      "enquiry_id": "5d4d15fc-aeef-4c8f-9fa7-294fe328a0a2",
+      "event_type": "CREATED",
+      "actor": null,
+      "note": null,
+      "metadata": {
+        "office": "Riyadh",
+        "routedTo": "info@veltrixair.com",
+        "spamScore": 0,
+        "spamReasons": []
+      },
+      "created_date": "2026-08-13T12:46:13.868Z"
+    },
+    {
+      "id": "cb37a7cc-b75a-4e54-9a14-8b0f6a155348",
+      "enquiry_id": "5d4d15fc-aeef-4c8f-9fa7-294fe328a0a2",
+      "event_type": "NOTIFICATION_SENT",
+      "actor": null,
+      "note": null,
+      "metadata": {
+        "routedTo": "info@veltrixair.com"
+      },
+      "created_date": "2026-08-13T12:46:14.868Z"
+    }
+  ]
+}
