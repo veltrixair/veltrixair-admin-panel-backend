@@ -48,3 +48,14 @@ config/prod.env
 .env.test.local
 .env.production.local
 storage/
+
+# Docs are not versioned.
+#
+# Two of these fight every merge: the PDF and DOCX are binaries git cannot
+# combine, and the Postman collection is one 6,800-line JSON that every
+# feature branch edits. The scripts that generate them are committed, which
+# is the part worth sharing.
+#
+# privacy-enquiries.export.json also lived here and holds real submissions.
+# Removing it from HEAD does not remove it from history — see commit 6d83481.
+docs/
