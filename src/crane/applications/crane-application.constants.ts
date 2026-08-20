@@ -52,5 +52,14 @@ export const STAGE_SLA_WORKING_DAYS: Partial<
   OFFER: 20,
 };
 
-/** Where the acknowledgement asks candidates to send their CV. */
+/**
+ * How many certificates one application may carry.
+ *
+ * Enforced here rather than by the join table: a composite key can stop the
+ * same file being attached twice, but it cannot count — and a trigger for a
+ * product rule is somewhere nobody looks when it becomes five.
+ */
+export const MAX_CERTIFICATES = 4;
+
+/** Reply-to on the acknowledgement, and where senior enquiries go. */
 export const CAREERS_INBOX = 'careers@veltrixair.com';

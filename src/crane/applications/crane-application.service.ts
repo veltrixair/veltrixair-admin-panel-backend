@@ -30,6 +30,7 @@ import {
   RETENTION_MONTHS,
   SITE_CODE,
   STAGE_SLA_WORKING_DAYS,
+  MAX_CERTIFICATES,
 } from './crane-application.constants';
 import { CreateCraneApplicationDto } from './dto/create-crane-application.dto';
 import { ListCraneApplicationsDto } from './dto/manage-crane-application.dto';
@@ -109,9 +110,16 @@ export class CraneApplicationService {
 
   async submit(
     dto: CreateCraneApplicationDto,
+    uploads: { resume: UploadedFile; certificates: UploadedFile[] },
     context: SubmissionContext,
   ): Promise<{ referenceNo: string; message: string }> {
     const submittedAt = new Date();
+
+    if (uploads.certificates.length > MAX_CERTIFICATES) {
+      throw new BadRequestException(
+        `Please attach no more than ${MAX_CERTIFICATES} certificates.`,
+      );
+    }
 
     await this.assertCodesExist(dto);
     const job = await this.resolveJob(dto);
@@ -146,6 +154,30 @@ export class CraneApplicationService {
     const retentionUntil = new Date(submittedAt);
     retentionUntil.setMonth(retentionUntil.getMonth() + RETENTION_MONTHS);
 
+    /*
+     * Files go to storage before the row is written, and are cleaned up by hand
+     * if the write then fails.
+     *
+     * The alternative — uploading inside the transaction — would hold a
+     * database transaction open across several network round trips to object
+     * storage, which is how a slow upload becomes a lock nobody can explain.
+     */
+    const stored: { id: string }[] = [];
+    let cv: { id: string };
+    try {
+      cv = await this.files.upload(uploads.resume, 'RESUME', null, SITE_CODE);
+      stored.push(cv);
+
+      for (const certificate of uploads.certificates) {
+        stored.push(
+          await this.files.upload(certificate, 'CERTIFICATE', null, SITE_CODE),
+        );
+      }
+    } catch (error) {
+      await this.discard(stored);
+      throw error;
+    }
+
     const application = await this.dataSource.transaction(async (manager) => {
       const referenceNo = await this.referenceNumbers.next(
         REFERENCE_PREFIX,
@@ -171,6 +203,9 @@ export class CraneApplicationService {
           workingLanguages: dto.workingLanguages,
           certifications: dto.certifications?.trim() ?? null,
           backgroundSummary: dto.backgroundSummary.trim(),
+          cvFileId: cv.id,
+          cvAttachedAt: submittedAt,
+          certificateFiles: stored.slice(1).map((file) => ({ id: file.id })),
           // Suspected spam is stored, never rejected — a false positive must
           // not lose a real candidate.
           status: spam.isSpam ? 'REJECTED' : 'SUBMITTED',
@@ -209,15 +244,15 @@ export class CraneApplicationService {
     }
 
     this.logger.log(
-      `Crane application ${application.referenceNo} — ${application.fullName}`,
+      `Crane application ${application.referenceNo} — ${application.fullName}, ` +
+        `${uploads.certificates.length} certificate(s)`,
     );
 
     return {
       referenceNo: application.referenceNo,
       message:
         `Thank you. Your reference is ${application.referenceNo}. ` +
-        `Please reply to the acknowledgement email with your CV and any ` +
-        `certifications attached — we cannot progress an application without them.`,
+        `A recruiter will review your CV and respond within five working days.`,
     };
   }
 
@@ -248,8 +283,13 @@ export class CraneApplicationService {
     if (query.jobId) {
       qb.andWhere('application.jobId = :jobId', { jobId: query.jobId });
     }
-    if (query.awaitingCv) {
-      qb.andWhere('application.cvFileId IS NULL');
+    if (query.withoutCertificates) {
+      qb.andWhere(
+        `NOT EXISTS (
+           SELECT 1 FROM crane_application_certificates c
+           WHERE c.application_id = application.id
+         )`,
+      );
     }
     if (query.overdue) {
       qb.andWhere('application.stageDueAt IS NOT NULL').andWhere(
@@ -277,6 +317,8 @@ export class CraneApplicationService {
   /** The full record — the withheld columns included. */
   async findById(id: string): Promise<CraneApplication> {
     const application = await this.scoped()
+      .leftJoinAndSelect('application.cvFile', 'cvFile')
+      .leftJoinAndSelect('application.certificateFiles', 'certificateFiles')
       .addSelect([
         'application.nationality',
         'application.mobile',
@@ -340,24 +382,20 @@ export class CraneApplicationService {
   }
 
   /**
-   * Attach the CV that arrived by email reply.
+   * Replace the CV on an application.
    *
-   * Without this the CV lives only in an inbox — unretained, unsearchable, and
-   * invisible to the twelve-month deletion the page promises. Bringing it onto
-   * the record is what makes that promise keepable.
+   * The form now carries one, so this is no longer how a CV first arrives — it
+   * is for the case where the file is corrupt or the candidate sends a better
+   * one. The old file is left in storage deliberately: the retention purge owns
+   * deletion, and a recruiter who replaced the wrong record should be able to
+   * ask for the previous one back.
    */
-  async attachCv(
+  async replaceCv(
     id: string,
     file: UploadedFile,
     actor: string,
   ): Promise<CraneApplication> {
     const application = await this.findById(id);
-
-    if (application.cvFileId) {
-      throw new ConflictException(
-        'A CV is already attached. Remove it first if it needs replacing.',
-      );
-    }
 
     const stored = await this.files.upload(file, 'RESUME', null, SITE_CODE);
 
@@ -424,6 +462,24 @@ export class CraneApplicationService {
   // =======================================================================
   // Internals
   // =======================================================================
+
+  /**
+   * Removes objects uploaded for a submission that then failed to save.
+   *
+   * Best effort by design: the caller is already throwing, and a failure to
+   * tidy up must not replace the error that actually explains what went wrong.
+   */
+  private async discard(files: { id: string }[]): Promise<void> {
+    for (const file of files) {
+      try {
+        await this.files.remove(file.id, SITE_CODE);
+      } catch (error) {
+        this.logger.warn(
+          `Orphaned upload ${file.id}: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
 
   /** The one place an admin query is bound to the brand and to live rows. */
   private scoped() {
@@ -516,9 +572,7 @@ export class CraneApplicationService {
         `Thank you for applying${job ? ` for ${job.title}` : ''}.`,
         `Your reference is ${application.referenceNo}.`,
         ``,
-        `Please REPLY TO THIS EMAIL with your CV attached, along with any`,
-        `certifications relevant to the role. We cannot progress an application`,
-        `without them.`,
+        `We have your CV and any certificates you attached.`,
         ``,
         `What happens next:`,
         `  CV screening        within 5 working days`,
