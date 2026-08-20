@@ -97,29 +97,31 @@ export class AdminCraneApplicationController {
   }
 
   /**
-   * The CV that came back by email reply.
+   * Replace the CV on an application.
    *
-   * Until this runs, the file exists only in an inbox — outside retention and
-   * invisible to the twelve-month deletion the careers page promises.
+   * The form carries one now, so this is not how a CV first arrives — it is for
+   * a corrupt file or a better version the candidate sends on. The previous
+   * file stays in storage: the retention purge owns deletion, and a recruiter
+   * who replaced the wrong record should be able to ask for it back.
    */
   @Post(':id/cv')
   @Permissions(FEATURE.CRANE_APPLICATIONS, PERMISSION.UPDATE)
   @UseInterceptors(
     FileInterceptor('cv', { limits: { fileSize: MAX_CV_BYTES } }),
   )
-  @ApiOperation({ summary: 'Attach the CV that arrived by email' })
-  @ResponseMessage('CV attached')
-  attachCv(
+  @ApiOperation({ summary: 'Replace the CV on an application' })
+  @ResponseMessage('CV replaced')
+  replaceCv(
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() cv: StoredUpload | undefined,
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<CraneApplication> {
     if (!cv) {
       throw new BadRequestException(
-        'Attach the CV in the "cv" field (PDF, DOC or DOCX).',
+        'Attach the replacement CV in the "cv" field (PDF, DOC or DOCX).',
       );
     }
-    return this.applications.attachCv(id, cv, admin.email);
+    return this.applications.replaceCv(id, cv, admin.email);
   }
 
   @Patch(':id/assign')

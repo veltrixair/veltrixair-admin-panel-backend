@@ -64,10 +64,25 @@ const POLICIES: Record<FilePurpose, PurposePolicy> = {
     allowed: ['pdf', 'doc', 'docx'],
     retentionMonths: 84,
   },
+  /*
+   * A candidate's ticket or card — ISO 9927, NDT Level II, a rigging licence.
+   *
+   * Images are accepted here and nowhere else: these are plastic cards, and a
+   * candidate photographs one rather than scanning it to PDF. Twelve months to
+   * match the application it belongs to, so a certificate is purged with the
+   * record rather than outliving it.
+   */
+  CERTIFICATE: {
+    maxBytes: 5 * 1024 * 1024,
+    allowed: ['pdf', 'jpeg', 'png'],
+    retentionMonths: 12,
+  },
 };
 
 const MIME_BY_TYPE: Record<Exclude<DetectedType, 'unknown'>, string> = {
   pdf: 'application/pdf',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   doc: 'application/msword',
 };
@@ -89,7 +104,7 @@ export class FilesService {
   }
 
   /**
-   *  is required rather than defaulted. One backend serves three
+   * `siteCode` is required rather than defaulted. One backend serves three
    * brands, and a stored object that cannot say which one it belongs to cannot
    * be listed, retained or purged correctly — a default would quietly file
    * everything under IT.

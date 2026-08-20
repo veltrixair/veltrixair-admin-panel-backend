@@ -6,12 +6,12 @@
  * both to whatever the uploader wants. The only trustworthy signal is what the
  * first bytes of the file actually are.
  *
- * Deliberately hand-rolled rather than pulling a dependency: three formats is
- * about twenty lines, and the check is security-relevant enough to be worth
+ * Deliberately hand-rolled rather than pulling a dependency: five formats is
+ * about thirty lines, and the check is security-relevant enough to be worth
  * reading in full.
  */
 
-export type DetectedType = 'pdf' | 'docx' | 'doc' | 'unknown';
+export type DetectedType = 'pdf' | 'docx' | 'doc' | 'jpeg' | 'png' | 'unknown';
 
 interface Signature {
   type: Exclude<DetectedType, 'unknown'>;
@@ -29,6 +29,23 @@ const SIGNATURES: Signature[] = [
   {
     type: 'doc',
     bytes: [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
+    offset: 0,
+  },
+  /*
+   * Images, for the purposes that accept a photograph.
+   *
+   * A rigging ticket or an NDT card is a plastic card, and people photograph
+   * it — accepting only documents would mean a certificate upload that most
+   * candidates cannot use.
+   */
+  // JFIF/EXIF start-of-image marker. The third byte varies by encoder, so only
+  // the two that are actually fixed are checked.
+  { type: 'jpeg', bytes: [0xff, 0xd8, 0xff], offset: 0 },
+  // The PNG signature, including the CRLF/EOF bytes that catch a file mangled
+  // by an FTP client in text mode.
+  {
+    type: 'png',
+    bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
     offset: 0,
   },
 ];
@@ -83,7 +100,7 @@ export function verifySignature(
       ok: false,
       detected,
       reason:
-        'File contents do not match any accepted format. Only PDF and Word documents are allowed.',
+        'File contents do not match any accepted format. Allowed: PDF, Word, JPEG and PNG.',
     };
   }
 

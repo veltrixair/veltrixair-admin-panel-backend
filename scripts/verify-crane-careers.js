@@ -3,11 +3,11 @@
  *
  *   CRANE_EMAIL=... node scripts/verify-crane-careers.js <password>
  *
- * Covers the two things that make crane careers its own module rather than IT
- * careers with different data: a form that asks for nationality and residency,
- * and a pipeline whose deadlines the public page publishes. Plus the feature
- * split — 111 governs adverts, 112 governs candidates — which is the reason a
- * crane application can be handled without exposing who applied.
+ * Covers what makes crane careers its own module rather than IT careers with
+ * different data: a form asking for nationality and residency, a pipeline whose
+ * deadlines the public page publishes, and uploads that accept photographs
+ * because a rigging ticket is a plastic card. Plus the feature split — 111
+ * governs adverts, 112 governs candidates.
  */
 
 const BASE = process.env.BASE_URL || 'http://localhost:3000';
@@ -45,6 +45,44 @@ const call = async (method, path, body, token) => {
 
 const stamp = Date.now();
 
+/** Smallest byte sequences that satisfy the magic-byte check for each type. */
+const pdf = () =>
+  new Blob(['%PDF-1.4\ntrailer<</Root 1 0 R>>\n%%EOF\n'], {
+    type: 'application/pdf',
+  });
+const jpeg = () =>
+  new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46])], {
+    type: 'image/jpeg',
+  });
+const png = () =>
+  new Blob(
+    [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])],
+    { type: 'image/png' },
+  );
+
+/** The apply form is multipart now — the CV travels with it. */
+const apply = async (fields, files = {}) => {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) value.forEach((v) => form.append(key, String(v)));
+    else form.append(key, String(value));
+  }
+  if (files.resume !== null) {
+    form.append('resume', files.resume ?? pdf(), 'cv.pdf');
+  }
+  (files.certificates ?? []).forEach((c, i) =>
+    form.append('certificates', c.blob, c.name ?? `cert-${i}.pdf`),
+  );
+
+  const res = await fetch(`${BASE}/crane/careers/apply`, {
+    method: 'POST',
+    headers: { 'X-Site-Code': String(CRANE_SITE) },
+    body: form,
+  });
+  return { status: res.status, body: await res.json() };
+};
+
 (async () => {
   if (!ACTOR.password) {
     console.error('Pass the crane admin password as the first argument.');
@@ -80,7 +118,7 @@ const stamp = Date.now();
   check(
     'KSA residency statuses are offered',
     o.residencyStatuses?.length === 6 &&
-      o.residencyStatuses.some((r) => r.label.includes('Iqama — transferable')),
+      o.residencyStatuses.some((r) => r.label.includes('Iqama')),
     JSON.stringify(o.residencyStatuses?.map((r) => r.label)),
   );
   check(
@@ -103,7 +141,6 @@ const stamp = Date.now();
       employmentTypeCode: 201,
       experienceBandCode: 203,
       certifications: ['ISO 9927'],
-      saudiNationalsOnly: false,
       status: 'OPEN',
     },
     token,
@@ -141,8 +178,8 @@ const stamp = Date.now();
     JSON.stringify(publicJob.body.data?.serviceLine),
   );
 
-  console.log('\nAn application');
-  const applied = await call('POST', '/crane/careers/apply', {
+  console.log('\nApplying, with uploads');
+  const baseFields = {
     trackCode: 201,
     jobId: job.id,
     experienceBandCode: 203,
@@ -158,32 +195,52 @@ const stamp = Date.now();
     certifications: 'NDT Level II',
     backgroundSummary:
       'Twelve years on tower and gantry installations across the Eastern Province.',
+  };
+
+  const noCv = await apply(baseFields, { resume: null });
+  check(
+    'a submission with no CV is refused',
+    noCv.status === 400 && /resume/i.test(noCv.body.message ?? ''),
+    `${noCv.status} ${noCv.body.message}`,
+  );
+
+  const tooMany = await apply(
+    { ...baseFields, email: `cc-many-${stamp}@example.com` },
+    {
+      certificates: [
+        { blob: pdf() },
+        { blob: pdf() },
+        { blob: pdf() },
+        { blob: pdf() },
+        { blob: pdf() },
+      ],
+    },
+  );
+  check(
+    'a fifth certificate is refused',
+    tooMany.status === 400,
+    `${tooMany.status} ${tooMany.body.message}`,
+  );
+
+  const applied = await apply(baseFields, {
+    certificates: [
+      { blob: pdf(), name: 'iso-9927.pdf' },
+      { blob: jpeg(), name: 'ndt-card.jpg' },
+      { blob: png(), name: 'rigging-ticket.png' },
+    ],
   });
   check(
-    'submits with no CV and returns a VTX-HR reference',
+    'submits with a CV and three certificates',
     applied.status === 201 && /^VTX-HR-/.test(applied.body.data?.referenceNo),
     `${applied.status} ${JSON.stringify(applied.body.data ?? applied.body.message)}`,
   );
   check(
-    'the reply tells the candidate to send their CV by email',
-    /reply to the acknowledgement/i.test(applied.body.data?.message ?? ''),
+    'the reply no longer asks for a CV by email',
+    !/reply to the acknowledgement/i.test(applied.body.data?.message ?? ''),
     applied.body.data?.message,
   );
 
-  const again = await call('POST', '/crane/careers/apply', {
-    trackCode: 201,
-    jobId: job.id,
-    experienceBandCode: 203,
-    fullName: 'Verification Probe',
-    nationality: 'Indian',
-    email: `cc-${stamp}@example.com`,
-    mobile: '+966 55 000 0000',
-    residencyCode: 203,
-    qualificationCode: 201,
-    workingLanguages: ['EN'],
-    backgroundSummary:
-      'Twelve years on tower and gantry installations across the Eastern Province.',
-  });
+  const again = await apply(baseFields);
   check(
     'a second live application for the same role is refused',
     again.status === 409,
@@ -192,7 +249,9 @@ const stamp = Date.now();
 
   console.log('\nWhat the pipeline exposes');
   const list = await call('GET', '/admin/crane-applications', null, token);
-  const row = (list.body.data?.items ?? [])[0];
+  const row = (list.body.data?.items ?? []).find(
+    (a) => a.referenceNo === applied.body.data.referenceNo,
+  );
   check(
     'the list withholds nationality, mobile and background',
     row &&
@@ -201,12 +260,17 @@ const stamp = Date.now();
       row.backgroundSummary === undefined,
     JSON.stringify(Object.keys(row ?? {})),
   );
+
+  const noCerts = await call(
+    'GET',
+    '/admin/crane-applications?withoutCertificates=true',
+    null,
+    token,
+  );
   check(
-    'awaitingCv finds the applications with no CV yet',
-    (
-      await call('GET', '/admin/crane-applications?awaitingCv=true', null, token)
-    ).body.data?.items?.length > 0,
-    'none returned',
+    'withoutCertificates excludes the one that attached three',
+    !(noCerts.body.data?.items ?? []).some((a) => a.id === row.id),
+    JSON.stringify((noCerts.body.data?.items ?? []).map((a) => a.referenceNo)),
   );
 
   const detail = await call(
@@ -217,9 +281,24 @@ const stamp = Date.now();
   );
   const d = detail.body.data ?? {};
   check(
-    'the detail record returns them',
+    'the detail record returns the withheld fields',
     d.nationality === 'Indian' && typeof d.backgroundSummary === 'string',
     JSON.stringify({ nationality: d.nationality, mobile: d.mobile }),
+  );
+  check(
+    'the CV is on the record',
+    d.cvFile?.purpose === 'RESUME' && !!d.cvAttachedAt,
+    JSON.stringify({ cv: d.cvFile?.originalName, at: d.cvAttachedAt }),
+  );
+  check(
+    'all three certificates attached, images included',
+    d.certificateFiles?.length === 3 &&
+      d.certificateFiles.every((f) => f.purpose === 'CERTIFICATE') &&
+      d.certificateFiles.some((f) => f.mimeType === 'image/jpeg') &&
+      d.certificateFiles.some((f) => f.mimeType === 'image/png'),
+    JSON.stringify(
+      (d.certificateFiles ?? []).map((f) => `${f.originalName}:${f.mimeType}`),
+    ),
   );
   check(
     'retention is set twelve months out',
@@ -234,14 +313,14 @@ const stamp = Date.now();
   const screening = await call(
     'PATCH',
     `/admin/crane-applications/${row.id}/status`,
-    { status: 'SCREENING', note: 'CV received by email.' },
+    { status: 'SCREENING', note: 'CV reviewed.' },
     token,
   );
   const dueScreening = screening.body.data?.stageDueAt;
   check(
-    'screening is due five working days out',
+    'screening carries a deadline',
     !!dueScreening,
-    JSON.stringify({ stageDueAt: dueScreening }),
+    JSON.stringify(dueScreening),
   );
 
   const technical = await call(
@@ -268,7 +347,7 @@ const stamp = Date.now();
   check(
     'a terminal stage carries no deadline',
     hired.body.data?.stageDueAt === null,
-    JSON.stringify({ stageDueAt: hired.body.data?.stageDueAt }),
+    JSON.stringify(hired.body.data?.stageDueAt),
   );
 
   console.log('\nSeparation');
@@ -291,7 +370,9 @@ const stamp = Date.now();
   );
 
   console.log(`\n${passed} passed, ${failed} failed`);
-  console.log(`created for cleanup: ${job?.slug}, ${applied.body.data?.referenceNo}`);
+  console.log(
+    `created for cleanup: ${job?.slug}, ${applied.body.data?.referenceNo}`,
+  );
   process.exit(failed === 0 ? 0 : 1);
 })().catch((e) => {
   console.error(e);
