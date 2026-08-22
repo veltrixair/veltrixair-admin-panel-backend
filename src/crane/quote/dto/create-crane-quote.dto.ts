@@ -9,7 +9,6 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
-  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -155,12 +154,11 @@ export class CreateCraneQuoteDto {
   @IsInt({ message: 'Please select the OEM or brand.' })
   oemCode: number;
 
+  /** "32 t", or "10 + 20 + 32 t" when the request covers several cranes. */
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  @Max(10000)
-  swlTonnes?: number;
+  @IsString()
+  @MaxLength(150)
+  swlTonnes?: string;
 
   @IsOptional()
   @Type(() => Number)
