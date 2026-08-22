@@ -37,6 +37,16 @@ export const QUOTE_STATUSES = [
   'PROPOSAL_SENT',
   'WON',
   'LOST',
+  /**
+   * "Reverted back" — the request came back to us after a proposal went out,
+   * and needs rework before it can move again.
+   *
+   * Deliberately NOT terminal, which is what separates it from WITHDRAWN: a
+   * reverted quote is still live and can be moved to any other status, whereas
+   * a withdrawn one is finished for good. It also stops the triage clock, on
+   * the grounds that someone has plainly engaged with it by this point.
+   */
+  'REVERTED',
   'WITHDRAWN',
 ] as const;
 export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
@@ -232,18 +242,23 @@ export class CraneQuoteRequest {
   })
   oem?: CraneOemMaster;
 
+  /**
+   * Safe working load, as written — "32 t", or "10 + 20 + 32 t" for a request
+   * covering several cranes.
+   *
+   * Text rather than a number, because `craneCount` on this same form is
+   * routinely more than one and a numeric column could hold only a single
+   * capacity. It matches `spanLiftHeight` below, which has always been text
+   * for the same reason. Nothing reads this value, so there is no arithmetic
+   * to give up.
+   */
   @Column({
     name: 'swl_tonnes',
-    type: 'numeric',
-    precision: 8,
-    scale: 2,
+    type: 'varchar',
+    length: 150,
     nullable: true,
-    transformer: {
-      to: (value: number | null) => value,
-      from: (value: string | null) => (value === null ? null : Number(value)),
-    },
   })
-  swlTonnes: number | null;
+  swlTonnes: string | null;
 
   @Column({ name: 'year_of_manufacture', type: 'int', nullable: true })
   yearOfManufacture: number | null;

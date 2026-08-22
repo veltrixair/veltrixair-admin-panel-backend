@@ -53,8 +53,8 @@ export class JobPosting {
    * they are sections of this markdown now. `text` is unbounded in Postgres,
    * so there is no ceiling to run into.
    */
-  @Column({ name: 'description_mdx', type: 'text', nullable: true })
-  descriptionMdx: string | null;
+  @Column({ name: 'description_mdx', type: 'text' })
+  descriptionMdx: string;
 
   @Column({ name: 'practice_code', type: 'int' })
   practiceCode: number;

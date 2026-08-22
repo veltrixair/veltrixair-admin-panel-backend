@@ -11,8 +11,16 @@ import { ListJobsAdminDto, ListJobsDto } from './dto/list-jobs.dto';
 import { CreateJobDto, UpdateJobDto } from './dto/upsert-job.dto';
 import { toJobDetail, toJobListItem } from './dto/job-response.dto';
 import type { JobDetail, JobListItem } from './dto/job-response.dto';
+import { JobApplication } from '../applications/entities/job-application.entity';
 import { JobPosting } from './entities/job-posting.entity';
 import type { JobStatus } from './entities/job-posting.entity';
+
+/** A role on the admin board, carrying how many people applied to it. */
+export interface JobPostingWithApplicants extends JobPosting {
+  applicantCount: number;
+  /** Still sitting at NEW — nobody has looked at them yet. */
+  newApplicantCount: number;
+}
 
 @Injectable()
 export class CareersService {
@@ -21,6 +29,8 @@ export class CareersService {
     private readonly jobRepo: Repository<JobPosting>,
     @InjectRepository(JobLocationMaster)
     private readonly locationRepo: Repository<JobLocationMaster>,
+    @InjectRepository(JobApplication)
+    private readonly applicationRepo: Repository<JobApplication>,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -68,11 +78,11 @@ export class CareersService {
   // Admin
   // -----------------------------------------------------------------------
 
-  /** Includes drafts and closed roles. */
-  listForAdmin(
+  /** Includes drafts and closed roles, and how many people applied to each. */
+  async listForAdmin(
     query: ListJobsAdminDto,
     siteCode: number,
-  ): Promise<PaginatedResult<JobPosting>> {
+  ): Promise<PaginatedResult<JobPostingWithApplicants>> {
     const qb = this.baseQuery(query, siteCode);
 
     if (query.status) {
@@ -84,7 +94,47 @@ export class CareersService {
       });
     }
 
-    return this.paginate(qb, query);
+    const page = await this.paginate(qb, query);
+    return { ...page, items: await this.withApplicantCounts(page.items) };
+  }
+
+  /**
+   * Attaches applicant counts to a page of roles.
+   *
+   * One grouped query for the whole page rather than a correlated subquery per
+   * row, and deliberately not a `loadRelationCountAndMap`: that would need an
+   * inverse relation from JobPosting to JobApplication, which would let a
+   * caller accidentally hydrate every applicant — names, emails and notice
+   * periods — while asking for a list of adverts.
+   *
+   * A role nobody has applied to is absent from the grouped result, so the
+   * zero is filled in here. Missing and zero must not look different.
+   */
+  private async withApplicantCounts(
+    jobs: JobPosting[],
+  ): Promise<JobPostingWithApplicants[]> {
+    if (!jobs.length) return [];
+
+    const rows = await this.applicationRepo
+      .createQueryBuilder('application')
+      .select('application.job_id', 'jobId')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect(
+        "COUNT(*) FILTER (WHERE application.status = 'NEW')",
+        'unreviewed',
+      )
+      .where('application.job_id IN (:...ids)', { ids: jobs.map((j) => j.id) })
+      .andWhere('application.is_deleted = false')
+      .groupBy('application.job_id')
+      .getRawMany<{ jobId: string; total: string; unreviewed: string }>();
+
+    const byJob = new Map(rows.map((r) => [r.jobId, r]));
+
+    return jobs.map((job) => ({
+      ...job,
+      applicantCount: Number(byJob.get(job.id)?.total ?? 0),
+      newApplicantCount: Number(byJob.get(job.id)?.unreviewed ?? 0),
+    }));
   }
 
   /**
@@ -239,7 +289,10 @@ export class CareersService {
 
     if (query.search) {
       qb.andWhere(
-        '(job.title ILIKE :search OR job.summary ILIKE :search OR job.refCode ILIKE :search)',
+        // `summary` was folded into the description and dropped. It was still
+        // named here, and TypeORM passes an unknown property through to SQL
+        // verbatim — so every search on this board was a 500, not a bad result.
+        '(job.title ILIKE :search OR job.descriptionMdx ILIKE :search OR job.refCode ILIKE :search)',
         { search: `%${query.search}%` },
       );
     }

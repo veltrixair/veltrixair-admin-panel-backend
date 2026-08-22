@@ -19,6 +19,7 @@ import {
   ListCraneJobsDto,
   UpsertCraneJobDto,
 } from './dto/upsert-crane-job.dto';
+import { CraneApplication } from '../applications/entities/crane-application.entity';
 import { CraneJobPosting } from './entities/crane-job-posting.entity';
 import type { CraneJobStatus } from './entities/crane-job-posting.entity';
 
@@ -30,6 +31,13 @@ export interface CraneCareerOptions {
   qualifications: { code: number; label: string }[];
   locations: { code: number; label: string }[];
   employmentTypes: { code: number; label: string }[];
+}
+
+/** A crane advert on the admin board, carrying how many people applied. */
+export interface CraneJobPostingWithApplicants extends CraneJobPosting {
+  applicantCount: number;
+  /** Still sitting at SUBMITTED — nobody has screened them yet. */
+  newApplicantCount: number;
 }
 
 @Injectable()
@@ -51,6 +59,8 @@ export class CraneCareerService {
     private readonly locationRepo: Repository<CraneJobLocationMaster>,
     @InjectRepository(CraneEmploymentTypeMaster)
     private readonly employmentRepo: Repository<CraneEmploymentTypeMaster>,
+    @InjectRepository(CraneApplication)
+    private readonly applicationRepo: Repository<CraneApplication>,
   ) {}
 
   // =======================================================================
@@ -143,14 +153,55 @@ export class CraneCareerService {
   // Admin
   // =======================================================================
 
-  listForAdmin(
+  /** Includes drafts and closed roles, and how many people applied to each. */
+  async listForAdmin(
     query: ListCraneJobsDto,
-  ): Promise<PaginatedResult<CraneJobPosting>> {
+  ): Promise<PaginatedResult<CraneJobPostingWithApplicants>> {
     const qb = this.baseQuery(query);
     if (query.status) {
       qb.andWhere('job.status = :status', { status: query.status });
     }
-    return this.paginate(qb, query);
+
+    const page = await this.paginate(qb, query);
+    return { ...page, items: await this.withApplicantCounts(page.items) };
+  }
+
+  /**
+   * Attaches applicant counts to a page of adverts.
+   *
+   * Mirrors the IT board deliberately, so the two careers screens can share a
+   * column. What differs is only the name of the untouched state — a crane
+   * application arrives as SUBMITTED, an IT one as NEW.
+   *
+   * Counts only applications tied to a posting. Six crane tracks include a
+   * general "keep on file" application with a null `job_id`, and those belong
+   * to nobody's advert; adding them to every row would be an invented number.
+   */
+  private async withApplicantCounts(
+    jobs: CraneJobPosting[],
+  ): Promise<CraneJobPostingWithApplicants[]> {
+    if (!jobs.length) return [];
+
+    const rows = await this.applicationRepo
+      .createQueryBuilder('application')
+      .select('application.job_id', 'jobId')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect(
+        "COUNT(*) FILTER (WHERE application.status = 'SUBMITTED')",
+        'unreviewed',
+      )
+      .where('application.job_id IN (:...ids)', { ids: jobs.map((j) => j.id) })
+      .andWhere('application.is_deleted = false')
+      .groupBy('application.job_id')
+      .getRawMany<{ jobId: string; total: string; unreviewed: string }>();
+
+    const byJob = new Map(rows.map((r) => [r.jobId, r]));
+
+    return jobs.map((job) => ({
+      ...job,
+      applicantCount: Number(byJob.get(job.id)?.total ?? 0),
+      newApplicantCount: Number(byJob.get(job.id)?.unreviewed ?? 0),
+    }));
   }
 
   async findById(id: string): Promise<CraneJobPosting> {
