@@ -614,11 +614,151 @@ const escalation = folder(
 );
 
 // =========================================================================
+// 07 · Appointing super admins
+// =========================================================================
+
+const superAdminRule = folder(
+  '07 · Appointing super admins',
+  'SUPER_ADMIN is ONE role. Holding it on a single dashboard carries the same ' +
+    'authority over that dashboard as holding it on three, so a unit admin who ' +
+    'can grant it can create their own equals — who can create more, and can ' +
+    'revoke the admin who created them. The last-super-admin guard does not ' +
+    'object, because by then the site has several.\n\n' +
+    'That was demonstrable until recently: the Industries admin could mint a ' +
+    'second Industries admin in three calls, and nothing anywhere would say so.\n\n' +
+    'Now only a PROTECTED account may hand out role 101. `is_protected` is the ' +
+    'only rank the system has and already means "outranks a unit ' +
+    'administrator", so it is reused rather than inventing a second concept. ' +
+    'Mark a second account protected to nominate a deputy — otherwise losing ' +
+    'the root leaves no in-app way to appoint anyone.\n\n' +
+    'Five routes can assign a role. Guarding one would have left four ways ' +
+    'round it, so all five are probed here.',
+  [
+    probe({
+      name: 'Setup — a colleague on 102 to aim at',
+      method: 'POST',
+      path: '/admin/staff',
+      token: 'craneToken',
+      site: 102,
+      body: {
+        email: 'escalation-target@example.com',
+        fullName: 'Escalation Target',
+        designation: 'Operations Manager',
+        departmentCode: 105,
+        employmentType: 'FULL_TIME',
+      },
+      expect: [
+        `pm.test("created (409 is fine on a re-run)", () =>`,
+        `  pm.expect([201, 409]).to.include(pm.response.code));`,
+        `if (pm.response.code === 201) pm.collectionVariables.set("escalationTargetId", pm.response.json().data.id);`,
+      ],
+      note: 'Ordinary roles are still a unit admin’s to give. Only 101 is gated.',
+    }),
+    probe({
+      name: '1 · create with roleCodes [101] → 403',
+      method: 'POST',
+      path: '/admin/staff',
+      token: 'craneToken',
+      site: 102,
+      body: {
+        email: 'minted-peer@example.com',
+        fullName: 'Minted Peer',
+        designation: 'Operations Manager',
+        departmentCode: 105,
+        employmentType: 'FULL_TIME',
+        roleCodes: [101],
+      },
+      expect: refused(403, 'a unit admin cannot create a super admin outright'),
+    }),
+    probe({
+      name: '2 · invite by email as SUPER_ADMIN → 403',
+      method: 'POST',
+      path: '/admin/staff/invite',
+      token: 'craneToken',
+      site: 102,
+      body: { email: 'escalation-target@example.com', roleCodes: [101] },
+      expect: refused(403, 'nor appoint one through the invite panel'),
+    }),
+    probe({
+      name: '3 · invite by id as SUPER_ADMIN → 403',
+      method: 'POST',
+      path: '/admin/staff/{{escalationTargetId}}/invite',
+      token: 'craneToken',
+      site: 102,
+      body: { email: 'escalation-target@example.com', roleCodes: [101] },
+      expect: refused(403, 'nor through the id route behind Resend'),
+    }),
+    probe({
+      name: '4 · grant SUPER_ADMIN afterwards → 403',
+      method: 'POST',
+      path: '/admin/staff/{{escalationTargetId}}/roles',
+      token: 'craneToken',
+      site: 102,
+      body: { roleCode: 101 },
+      expect: refused(403, 'nor by inviting low and promoting later'),
+      note:
+        'The obvious way round a rule that only guarded invite: bring someone ' +
+        'in as a VIEWER, then promote them the next day.',
+    }),
+    probe({
+      name: '5 · sneak it into replace-roles → 403',
+      method: 'PUT',
+      path: '/admin/staff/{{escalationTargetId}}/roles',
+      token: 'craneToken',
+      site: 102,
+      body: { roleCodes: [105, 101] },
+      expect: refused(403, 'nor by hiding it in a checkbox form’s save'),
+    }),
+    probe({
+      name: 'Control — an ordinary role still works',
+      method: 'POST',
+      path: '/admin/staff/{{escalationTargetId}}/roles',
+      token: 'craneToken',
+      site: 102,
+      body: { roleCode: 105 },
+      expect: [
+        `pm.test("a unit admin still runs their own unit", () =>`,
+        `  pm.expect([201, 200]).to.include(pm.response.code));`,
+      ],
+      note:
+        'If every probe above 403s and this one does too, the suite is proving ' +
+        'nothing except that the token is broken.',
+    }),
+    probe({
+      name: 'The global super admin’s badge cannot be revoked → 403',
+      method: 'DELETE',
+      path: '/admin/staff/{{rootAdminId}}/roles/102/101',
+      token: 'craneToken',
+      site: 102,
+      expect: refused(403, 'nobody strips the organisation-level administrator'),
+      note:
+        'Stronger than the protected-account rule beside it: this refuses ' +
+        'everyone, protected callers included. The account spans all three ' +
+        'brands, so removing one badge is how you would quietly amputate the ' +
+        'only authority that crosses them — and the last-super-admin guard ' +
+        'would not notice, because each dashboard still has its own.',
+    }),
+    probe({
+      name: 'Nor stripped by omission in replace-roles → 403',
+      method: 'PUT',
+      path: '/admin/staff/{{rootAdminId}}/roles',
+      token: 'craneToken',
+      site: 102,
+      body: { roleCodes: [105] },
+      expect: refused(403, 'replace-by-omission is a revocation in disguise'),
+      note:
+        'Leaving 101 out of the list removes it just as surely as a DELETE. ' +
+        'Guarding only the delete route would have made the rule decorative.',
+    }),
+  ],
+);
+
+// =========================================================================
 // 07 · Session lifecycle
 // =========================================================================
 
 const lifecycle = folder(
-  '07 · Session lifecycle',
+  '08 · Session lifecycle',
   'A token is signed and cannot be edited — but it can outlive the badge ' +
     'behind it. PermissionsGuard re-reads the database on every request for ' +
     'exactly this reason.\n\n' +
@@ -667,7 +807,7 @@ const lifecycle = folder(
 // =========================================================================
 
 const publicSurface = folder(
-  '08 · Public surface',
+  '09 · Public surface',
   'What an anonymous visitor can reach. No token on any of these.',
   [
     probe({
@@ -754,6 +894,7 @@ const rbacFolder = folder(
     idor,
     permissions,
     escalation,
+    superAdminRule,
     lifecycle,
     publicSurface,
   ],
@@ -888,6 +1029,7 @@ const needed = {
   salesAdminId: '',
   probeItJobId: '',
   probeItFileId: '',
+  escalationTargetId: '',
 };
 
 collection.variable = collection.variable ?? [];

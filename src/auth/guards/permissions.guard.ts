@@ -49,6 +49,22 @@ export class PermissionsGuard implements CanActivate {
       throw new UnauthorizedException('Authentication required');
     }
 
+    /*
+     * `mustChangePassword` is NOT enforced here.
+     *
+     * It was, briefly, and it bought nothing for the case it was written for:
+     * someone newly invited holds only PENDING, which grants nothing, so they
+     * are refused by the check below regardless. Two gates, one outcome — and
+     * the extra one only made the dashboard unreachable for a person who has
+     * just been told to go and use it.
+     *
+     * So the flag is advisory. It rides on /me, the client prompts, and the
+     * account works meanwhile. The tradeoff is real and worth naming: after an
+     * admin resets a colleague's password, that temporary credential carries
+     * that colleague's full permissions until it is changed. What contains
+     * that is the reset ending every existing session, not a guard.
+     */
+
     const allowed = await this.permissionService.hasAdminPermission(
       user.id,
       user.siteCode,

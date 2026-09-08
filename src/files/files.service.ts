@@ -77,6 +77,65 @@ const POLICIES: Record<FilePurpose, PurposePolicy> = {
     allowed: ['pdf', 'jpeg', 'png'],
     retentionMonths: 12,
   },
+
+  /**
+   * A personnel file: offer letter, certificates, Aadhaar, PAN, bank proof.
+   *
+   * Images allowed for the same reason certificates are — an Aadhaar card and
+   * a passport photo are photographed, not scanned.
+   *
+   * `retentionMonths: null`, and that is the careful part. Retention is
+   * stamped at upload, but a personnel document has to be kept until well
+   * after somebody leaves — so a timer started on the day it was uploaded
+   * would delete the live file of a colleague who is still here. Onboarding
+   * documents are removed as a step in offboarding, which is a decision about
+   * a person rather than about a file.
+   */
+  EMPLOYEE_DOCUMENT: {
+    maxBytes: 10 * 1024 * 1024,
+    allowed: ['pdf', 'jpeg', 'png'],
+    retentionMonths: null,
+  },
+
+  /**
+   * One month's payslip.
+   *
+   * Seven years, which covers the longest ordinary tax window across the three
+   * jurisdictions the company operates in — India's being the binding one —
+   * and matches what quote attachments already keep.
+   *
+   * Unlike the documents above, an upload-stamped clock is right here: a slip
+   * arrives each month, so each file's retention runs from roughly its own pay
+   * period rather than from an event years later.
+   */
+  /**
+   * An account's own display picture.
+   *
+   * Small on purpose. This is rendered at 52px in a profile card and 36px in
+   * the sidebar, so megabytes of it are bandwidth nobody sees — and a cap this
+   * tight makes an accidental upload of a scanned document fail loudly rather
+   * than quietly becoming somebody's avatar.
+   *
+   * No PDF: a photo is a photo. JPEG and PNG only — uploads are checked by
+   * magic bytes, not by filename, and those are the image signatures the
+   * detector knows. WebP would mean teaching a shared, security-relevant
+   * utility a new format for the sake of an avatar.
+   *
+   * `retentionMonths: null` — an avatar is current until it is replaced. A
+   * timer stamped at upload would delete the picture of somebody still working
+   * here, which is the same trap the personnel documents avoid.
+   */
+  PROFILE_PHOTO: {
+    maxBytes: 2 * 1024 * 1024,
+    allowed: ['jpeg', 'png'],
+    retentionMonths: null,
+  },
+
+  EMPLOYEE_PAYSLIP: {
+    maxBytes: 5 * 1024 * 1024,
+    allowed: ['pdf'],
+    retentionMonths: 84,
+  },
 };
 
 const MIME_BY_TYPE: Record<Exclude<DetectedType, 'unknown'>, string> = {
@@ -209,9 +268,17 @@ export class FilesService {
    * otherwise cross a brand boundary. Its four siblings on the controller all
    * pass the site; this one did not, which is what made it worth fixing.
    */
+  /**
+   * `siteCode` is optional because not every file belongs to a brand.
+   *
+   * A profile photo belongs to the account, and the root administrator holds
+   * badges on all three dashboards — scoping the lookup made their own picture
+   * disappear the moment they signed in to a different one. Callers that are
+   * fetching brand assets still pass it, and still get the check.
+   */
   async downloadUrl(
     id: string,
-    siteCode: number,
+    siteCode?: number,
   ): Promise<{ url: string; expiresInSeconds: number }> {
     const file = await this.findById(id, siteCode);
 

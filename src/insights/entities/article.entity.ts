@@ -9,7 +9,6 @@ import {
   ManyToMany,
   ManyToOne,
   PrimaryGeneratedColumn,
-  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { StoredFile } from '../../files/entities/stored-file.entity';
@@ -32,7 +31,18 @@ export type ReadingUnit = (typeof READING_UNITS)[number];
  * hash anchors rather than to individual URLs.
  */
 @Entity({ name: 'articles' })
-@Unique('vtx_articles_slug_unique', ['slug'])
+/*
+ * Scoped to the brand, and only while the article is live.
+ *
+ * Global uniqueness meant IT and Crane could never share a slug, and a
+ * soft-deleted article held on to its own forever — blocking a name whose
+ * owner is invisible in the admin panel. The partial index releases a slug
+ * the moment its article is removed, without rewriting the deleted row.
+ */
+@Index('vtx_articles_site_slug_unique', ['siteCode', 'slug'], {
+  unique: true,
+  where: '"is_deleted" = false',
+})
 export class Article {
   @PrimaryGeneratedColumn('uuid', {
     primaryKeyConstraintName: 'vtx_articles_id_pk',

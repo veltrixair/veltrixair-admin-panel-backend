@@ -9,12 +9,15 @@ import { AdminStaffController } from './admin-staff.controller';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { Admin } from './entities/admin.entity';
+import { Employee } from '../hr/entities/employee.entity';
 import { AdminRole } from './entities/admin-role.entity';
 import { FeatureMaster } from './entities/feature-master.entity';
 import { PermissionMaster } from './entities/permission-master.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RoleMaster } from './entities/role-master.entity';
 import { RolePermission } from './entities/role-permission.entity';
+import { DepartmentMaster } from '../master-data/entities/department-master.entity';
+import { OfficeMaster } from '../master-data/entities/office-master.entity';
 import { SiteMaster } from '../master-data/entities/site-master.entity';
 import { AdminJwtGuard } from './guards/admin-jwt.guard';
 import { PermissionsGuard } from './guards/permissions.guard';
@@ -41,6 +44,7 @@ import { JwtAdminStrategy } from './strategies/jwt-admin.strategy';
   imports: [
     TypeOrmModule.forFeature([
       Admin,
+      Employee,
       AdminRole,
       RoleMaster,
       FeatureMaster,
@@ -48,6 +52,8 @@ import { JwtAdminStrategy } from './strategies/jwt-admin.strategy';
       RolePermission,
       RefreshToken,
       SiteMaster,
+      DepartmentMaster,
+      OfficeMaster,
     ]),
     PassportModule.register({ defaultStrategy: 'jwt-admin' }),
     JwtModule.registerAsync({

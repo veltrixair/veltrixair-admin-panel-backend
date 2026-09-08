@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -12,10 +14,13 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import type { SignOptions } from 'jsonwebtoken';
 import { IsNull, LessThan, Repository } from 'typeorm';
 import { SpamCheckService } from '../common/services/spam-check.service';
+import { Employee } from '../hr/entities/employee.entity';
 import { Admin } from './entities/admin.entity';
+import { FilesService } from '../files/files.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { ARGON2_OPTIONS } from './password.constants';
 import { PermissionService } from './permission.service';
+import { ROLE } from './permissions.constants';
 import type { ResolvedPermission } from './permission.service';
 
 /**
@@ -61,8 +66,46 @@ export interface AuthenticatedProfile {
   email: string;
   fullName: string;
   lastLoginAt: Date | null;
+  /**
+   * True while the account is using a password somebody else chose — at
+   * invitation, and after an admin resets one.
+   *
+   * Advisory, not enforced: the client shows a prompt, and everything keeps
+   * working meanwhile. See the note in PermissionsGuard for why it is not a
+   * hard block.
+   */
+  mustChangePassword: boolean;
   scope: SessionScope;
   permissions: ResolvedPermission[];
+  /**
+   * Their display picture, as a file id rather than a URL.
+   *
+   * Objects are reached through short-lived signed links, so a URL embedded
+   * here would be stale long before the session was. The client asks for one
+   * when it needs to render, and can refresh it without asking who it is
+   * again.
+   */
+  avatarFileId: string | null;
+  /**
+   * Their own onboarding record — designation, department, employee code.
+   *
+   * Here rather than only on /admin/staff/:id because that route needs the
+   * ADMINS feature, which would mean nobody could see their own profile
+   * unless they were also allowed to administer everyone else's. Includes
+   * the mobile, which the staff list withholds: it is their own number.
+   */
+  profile: OwnProfile | null;
+}
+
+export interface OwnProfile {
+  employeeCode: string;
+  designation: string;
+  department: string | null;
+  employmentType: string;
+  workMode: string;
+  mobile: string | null;
+  officeCode: number | null;
+  joiningDate: string | null;
 }
 
 /** What the sign-in screen renders its two pickers from. */
@@ -80,10 +123,14 @@ export class AuthService {
     private readonly adminRepo: Repository<Admin>,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly permissionService: PermissionService,
     private readonly spamCheck: SpamCheckService,
+    // FilesModule is @Global, so this needs no import and creates no cycle.
+    private readonly filesService: FilesService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -119,7 +166,11 @@ export class AuthService {
     // Verify against a throwaway hash when the account is absent, so both paths
     // cost the same. Then fail with one message for every reason — wrong email,
     // wrong password and disabled account are indistinguishable from outside.
-    if (!admin) {
+    // A null hash means an account predating the rule that a password is set
+    // when access is granted — nothing to verify against. Burn the same time
+    // as a real check and give the same answer: whether an account exists, and
+    // whether it can be used, are both things an attacker would like to learn.
+    if (!admin || !admin.passwordHash) {
       await argon2.verify(await getDummyHash(), password).catch(() => false);
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -178,6 +229,26 @@ export class AuthService {
     const site = await this.permissionService.findSite(siteCode);
     if (!site) {
       throw new ForbiddenException('That dashboard is unavailable');
+    }
+
+    /*
+     * PENDING is a state, not a job.
+     *
+     * It is a real badge, so the lookup below would happily find it and hand
+     * back a working session. Refused here instead, because "created, awaiting
+     * a role" is not something anyone should be able to sign in AS — the
+     * account has no permissions, so the session could only ever be an empty
+     * dashboard, and offering it invites the question of why it exists.
+     *
+     * The normal path already avoids it: granting access requires a real role,
+     * so PENDING cannot be reached on a new account. This closes the
+     * hand-crafted request, and the accounts still holding it from before.
+     */
+    if (roleCode === ROLE.PENDING) {
+      throw new ForbiddenException(
+        'That role cannot be used to sign in. Ask an administrator to assign ' +
+          'you a role for this dashboard.',
+      );
     }
 
     const badges = await this.permissionService.listBadges(adminId);
@@ -378,9 +449,39 @@ export class AuthService {
 
     if (!admin) throw new UnauthorizedException('Account not found');
 
-    const [scope, permissions] = await Promise.all([
+    const [scope, permissions, profile] = await Promise.all([
       this.resolveScope(adminId, siteCode, roleCode),
-      this.permissionService.listSessionPermissions(roleCode),
+      this.permissionService.listSessionPermissions(roleCode, siteCode),
+      /*
+       * Reached through the account's `employeeId`, and null for the service
+       * accounts — they are credentials, not people, so there is no personnel
+       * record behind them and their profile card has nothing to show.
+       *
+       * Deliberately not selecting `monthlyNetPay`: this is the "my profile"
+       * read, available to anyone signed in, and salary is gated behind
+       * FEATURE.HR. Someone's own pay is a payroll question, not a session one.
+       */
+      admin.employeeId
+        ? this.employeeRepo.findOne({
+            where: { id: admin.employeeId },
+            relations: { department: true },
+            select: {
+              // `id` is not optional even though nothing reads it: joining a
+              // relation makes TypeORM build a DISTINCT-on-primary-key wrapper,
+              // and omitting the key leaves that wrapper selecting a column it
+              // never asked the query for.
+              id: true,
+              employeeCode: true,
+              designation: true,
+              employmentType: true,
+              workMode: true,
+              mobile: true,
+              officeCode: true,
+              joiningDate: true,
+              department: { departmentCode: true, departmentName: true },
+            },
+          })
+        : Promise.resolve(null),
     ]);
 
     return {
@@ -388,14 +489,104 @@ export class AuthService {
       email: admin.email,
       fullName: admin.fullName,
       lastLoginAt: admin.lastLoginAt,
+      mustChangePassword: admin.mustChangePassword,
       scope,
       permissions,
+      avatarFileId: admin.avatarFileId,
+      profile: profile
+        ? {
+            employeeCode: profile.employeeCode,
+            designation: profile.designation,
+            department: profile.department?.departmentName ?? null,
+            employmentType: profile.employmentType,
+            workMode: profile.workMode,
+            mobile: profile.mobile,
+            officeCode: profile.officeCode,
+            joiningDate: profile.joiningDate,
+          }
+        : null,
     };
   }
 
   // -------------------------------------------------------------------------
   // Change password
   // -------------------------------------------------------------------------
+
+  /**
+   * Set or clear your own display picture.
+   *
+   * Self-service by design: it needs no ADMINS permission, because choosing
+   * your own photograph is not administering anybody. The file must already
+   * have been uploaded under the PROFILE_PHOTO purpose, which is where the
+   * size and format rules are enforced — this only records which file it is.
+   *
+   * The previous photo is deleted rather than orphaned. Nothing else points at
+   * it, and leaving every avatar anyone ever chose in the bucket is a slow
+   * leak of storage and of faces.
+   */
+  async setAvatar(adminId: string, fileId: string | null): Promise<{ avatarFileId: string | null }> {
+    const admin = await this.adminRepo.findOne({
+      where: { id: adminId, isDeleted: false },
+    });
+    if (!admin) throw new NotFoundException('No such account');
+
+    if (fileId) {
+      const file = await this.filesService.findById(fileId);
+      if (file.purpose !== 'PROFILE_PHOTO') {
+        throw new BadRequestException(
+          'That file was not uploaded as a profile photo.',
+        );
+      }
+    }
+
+    const previous = admin.avatarFileId;
+    await this.adminRepo.update({ id: adminId }, { avatarFileId: fileId });
+
+    if (previous && previous !== fileId) {
+      // Best effort: the account already points at the new picture, and a
+      // failure to tidy the old one must not fail the request.
+      try {
+        await this.filesService.remove(previous);
+      } catch (error) {
+        this.logger.warn(
+          `Could not remove the previous avatar ${previous}: ${(error as Error).message}`,
+        );
+      }
+    }
+
+    return { avatarFileId: fileId };
+  }
+
+  /**
+   * A link to your own profile photo.
+   *
+   * Its own route rather than the generic file one, for two reasons the
+   * generic route cannot serve. It is gated on being signed in rather than on
+   * FEATURE.FILES, which a Viewer does not hold — they could set a photo and
+   * then never see it. And it is not site-scoped: an avatar belongs to the
+   * account, so the root administrator's picture must not vanish when they
+   * move between dashboards.
+   */
+  async avatarUrl(
+    adminId: string,
+  ): Promise<{ url: string | null; expiresInSeconds: number | null }> {
+    const admin = await this.adminRepo.findOne({
+      where: { id: adminId, isDeleted: false },
+      select: ['id', 'avatarFileId'],
+    });
+    if (!admin?.avatarFileId) return { url: null, expiresInSeconds: null };
+
+    try {
+      return await this.filesService.downloadUrl(admin.avatarFileId);
+    } catch {
+      /*
+       * The row points at a file that is no longer there — purged, or removed
+       * out from under it. Answering "no photo" is the truth the caller can
+       * act on; a 404 here would break a page over a decoration.
+       */
+      return { url: null, expiresInSeconds: null };
+    }
+  }
 
   async changePassword(
     adminId: string,
@@ -407,7 +598,9 @@ export class AuthService {
       select: ['id', 'email', 'passwordHash'],
     });
 
-    if (!admin) throw new UnauthorizedException('Account not found');
+    if (!admin?.passwordHash) {
+      throw new UnauthorizedException('Account not found');
+    }
 
     const ok = await argon2
       .verify(admin.passwordHash, currentPassword)
@@ -424,7 +617,11 @@ export class AuthService {
 
     await this.adminRepo.update(
       { id: adminId },
-      { passwordHash: await argon2.hash(newPassword, ARGON2_OPTIONS) },
+      {
+        passwordHash: await argon2.hash(newPassword, ARGON2_OPTIONS),
+        // This one is theirs, so the rest of the dashboard opens up.
+        mustChangePassword: false,
+      },
     );
 
     // A password change is how someone responds to a suspected compromise, so

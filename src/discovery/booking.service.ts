@@ -15,7 +15,9 @@ import {
   addBusinessDays,
   getZonedParts,
 } from '../common/utils/business-hours.util';
+import { FEATURE } from '../auth/permissions.constants';
 import { MailService } from '../mail/mail.service';
+import { NotificationService } from '../notifications/notification.service';
 import { MasterDataService } from '../master-data/master-data.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { ListBookingsDto } from './dto/list-bookings.dto';
@@ -32,6 +34,16 @@ const REFERENCE_SEQUENCE = 'discovery_booking_ref_seq';
 export interface BookingContext {
   ip?: string;
   userAgent?: string;
+}
+
+/** A candidate who can cover a session at the hour it is already booked. */
+export interface ReassignmentOption {
+  slotId: string;
+  architectId: string;
+  name: string;
+  practices: string[];
+  /** False when they do not cover the practice the visitor originally chose. */
+  coversPractice: boolean;
 }
 
 export interface BookingResult {
@@ -58,6 +70,7 @@ export class BookingService {
     private readonly mail: MailService,
     private readonly masterData: MasterDataService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationService,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -173,6 +186,21 @@ export class BookingService {
       dto.timezone,
     );
 
+    /*
+     * The panel's bell. The architect is named because the first thing anyone
+     * asks of a new booking is whose diary it landed in.
+     */
+    await this.notifications.raise({
+      siteCode,
+      featureCode: FEATURE.IT_DISCOVERY,
+      category: 'architect',
+      lead: 'Architect request',
+      body: `${booking.fullName} · ${booking.company} · with ${architectName}`,
+      link: `/architect/${booking.id}`,
+      sourceType: 'discovery_booking',
+      sourceId: booking.id,
+    });
+
     return {
       referenceNo: booking.referenceNo,
       manageToken: booking.manageToken,
@@ -263,9 +291,25 @@ export class BookingService {
         { s: `%${query.search}%` },
       );
     }
+    if (query.architectId) {
+      qb.andWhere('booking.architectId = :architectId', {
+        architectId: query.architectId,
+      });
+    }
+    /*
+     * Filtered on the session time, not on when the booking was taken. "This
+     * week" means the calls happening this week — nobody plans a diary around
+     * when the form was filled in.
+     */
+    if (query.from) {
+      qb.andWhere('slot.startsAt >= :from', { from: query.from });
+    }
+    if (query.to) {
+      qb.andWhere('slot.startsAt <= :to', { to: query.to });
+    }
 
     const [items, total] = await qb
-      .orderBy('slot.startsAt', 'DESC')
+      .orderBy('slot.startsAt', query.sort === 'soonest' ? 'ASC' : 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -281,6 +325,10 @@ export class BookingService {
       .addSelect('booking.programme')
       .leftJoinAndSelect('booking.slot', 'slot')
       .leftJoinAndSelect('booking.architect', 'architect')
+      // Practices too, so one booking has the same shape here as in the list.
+      // Without it `architect.practices` is undefined on the detail alone —
+      // the kind of difference a caller cannot see until it breaks at runtime.
+      .leftJoinAndSelect('architect.practices', 'practice')
       .where('booking.id = :id', { id })
       .andWhere('booking.isDeleted = false')
       .andWhere('booking.siteCode = :siteCode', { siteCode })
@@ -322,6 +370,210 @@ export class BookingService {
   // -----------------------------------------------------------------------
   // Notifications
   // -----------------------------------------------------------------------
+
+
+  /**
+   * Who could take this session at the time it is already booked for.
+   *
+   * Emergency cover only: the attendee chose that hour around their own diary,
+   * so the time is the fixed part and the architect is the flexible one. A
+   * candidate qualifies when they hold their own slot at exactly this
+   * `startsAt` and it is still FREE — slots are unique per architect and time,
+   * so "the same slot with someone else" is really a second row.
+   */
+  async reassignmentOptions(
+    id: string,
+    siteCode: number,
+  ): Promise<ReassignmentOption[]> {
+    const booking = await this.findById(id, siteCode);
+    if (!booking.slot) return [];
+
+    /*
+     * Cover is only meaningful before the hour arrives. A session that has
+     * already started needs an outcome recorded, not a different architect —
+     * offering one would suggest the call can still be rescued.
+     */
+    if (booking.slot.startsAt <= new Date()) return [];
+
+    const wanted = new Set(
+      (booking.architect?.practices ?? []).map((pr) => pr.practiceCode),
+    );
+
+    const slots = await this.slotRepo.find({
+      where: {
+        siteCode,
+        status: 'FREE',
+        startsAt: booking.slot.startsAt,
+      },
+      relations: { architect: { practices: true } },
+      order: { startsAt: 'ASC' },
+    });
+
+    return slots
+      .filter((slot) => slot.architect?.isActive && !slot.architect.isDeleted)
+      .map((slot) => {
+        const architect = slot.architect!;
+        const practices = architect.practices ?? [];
+        return {
+          slotId: slot.id,
+          architectId: architect.id,
+          name: architect.fullName ?? architect.displayTitle,
+          practices: practices.map((pr) => pr.practiceName),
+          /*
+           * Surfaced rather than filtered on. In an emergency a covering
+           * architect outside the visitor's chosen practice is better than
+           * nobody, but whoever presses the button should see they are doing
+           * it.
+           */
+          coversPractice: practices.some((pr) => wanted.has(pr.practiceCode)),
+        };
+      });
+  }
+
+  /**
+   * Hand an already-booked session to a different architect, same hour.
+   *
+   * Deliberately not a reschedule: the time never moves. What moves is which
+   * slot row the booking points at, because `booking.architectId` is a copy of
+   * `slot.architectId` — writing one without the other would leave the booking
+   * naming one person while that person's own diary named another.
+   */
+  async reassign(
+    id: string,
+    architectId: string,
+    siteCode: number,
+  ): Promise<DiscoveryBooking> {
+    const booking = await this.findById(id, siteCode);
+
+    if (booking.status !== 'BOOKED') {
+      throw new ConflictException(
+        'Only a booked session can be reassigned. This one is ' +
+          booking.status.toLowerCase().replace('_', ' ') +
+          '.',
+      );
+    }
+    if (!booking.slot) {
+      throw new NotFoundException('This booking has no slot to reassign');
+    }
+    if (booking.architectId === architectId) {
+      throw new ConflictException('That is already the assigned architect');
+    }
+    if (booking.slot.startsAt <= new Date()) {
+      throw new ConflictException(
+        'This session has already started. Record an outcome instead.',
+      );
+    }
+
+    const target = await this.slotRepo.findOne({
+      where: { architectId, startsAt: booking.slot.startsAt, siteCode },
+      relations: { architect: { office: true } },
+    });
+    if (!target) {
+      throw new NotFoundException(
+        'That architect has no session at this time — they cannot cover it',
+      );
+    }
+
+    const office = target.architect?.office;
+    if (!office) {
+      throw new NotFoundException('Architect is not assigned to an office');
+    }
+
+    /*
+     * The promise moves even though the hour does not.
+     *
+     * Deliverables are due two business days after the session on the
+     * architect's *own* office calendar, and Riyadh runs Sun-Thu while the
+     * others run Mon-Fri. Covering a Thursday session from India lands the
+     * memo on a different date, so it is recalculated rather than carried.
+     */
+    const deliverablesDueAt = addBusinessDays(
+      booking.slot.startsAt,
+      DELIVERABLE_BUSINESS_DAYS,
+      {
+        timezone: office.timezone,
+        workingDays: office.workingDays,
+        workStartHour: office.workStartHour,
+        workEndHour: office.workEndHour,
+      },
+    );
+
+    const previousSlotId = booking.slotId;
+
+    await this.dataSource.transaction(async (manager) => {
+      // The same conditional claim `book()` uses. Two admins reassigning at
+      // once both run it, exactly one matches FREE, and the loser is told.
+      const claim = await manager
+        .createQueryBuilder()
+        .update(SessionSlot)
+        .set({ status: 'BOOKED' })
+        .where('id = :id AND status = :free', { id: target.id, free: 'FREE' })
+        .execute();
+
+      if (claim.affected === 0) {
+        throw new ConflictException(
+          'That architect was just booked for this time. Choose another.',
+        );
+      }
+
+      await manager.update(
+        DiscoveryBooking,
+        { id },
+        { slotId: target.id, architectId, deliverablesDueAt },
+      );
+
+      // Released last, so a failure above never frees a slot we still hold.
+      await manager.update(
+        SessionSlot,
+        { id: previousSlotId },
+        { status: 'FREE' },
+      );
+    });
+
+    const updated = await this.findById(id, siteCode);
+    await this.sendReassignment(updated);
+    return updated;
+  }
+
+  /**
+   * Tell the attendee who they are now meeting.
+   *
+   * Nothing they hold becomes wrong except the name: same hour, same link,
+   * same reference. So this reads as an update to an existing arrangement
+   * rather than a fresh confirmation, and does not ask them to do anything.
+   */
+  private async sendReassignment(booking: DiscoveryBooking): Promise<void> {
+    if (!booking.slot) return;
+
+    const timezone = booking.attendeeTimezone;
+    const parts = getZonedParts(booking.slot.startsAt, timezone);
+    const localTime = `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`;
+    const when = `${parts.day}/${parts.month}/${parts.year} at ${localTime} (${timezone})`;
+    const architectName =
+      booking.architect?.fullName ??
+      booking.architect?.displayTitle ??
+      'Senior Architect';
+
+    await this.mail.send({
+      to: booking.workEmail,
+      subject: `Your discovery session — a change of architect (${booking.referenceNo})`,
+      body: [
+        `Hello ${booking.fullName},`,
+        ``,
+        `Your discovery session is unchanged in every respect but one: a`,
+        `different architect will now be joining you.`,
+        ``,
+        `When:      ${when} — unchanged`,
+        `Architect: ${architectName}`,
+        `Reference: ${booking.referenceNo}`,
+        ``,
+        `There is nothing you need to do. Your existing calendar invitation`,
+        `and link remain valid.`,
+        ``,
+        `To view or cancel: /discovery/bookings/${booking.manageToken}`,
+      ].join('\n'),
+    });
+  }
 
   private async sendConfirmation(
     booking: DiscoveryBooking,

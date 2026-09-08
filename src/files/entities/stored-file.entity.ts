@@ -15,6 +15,9 @@ export const FILE_PURPOSES = [
   'RESUME',
   'QUOTE_ATTACHMENT',
   'CERTIFICATE',
+  'EMPLOYEE_DOCUMENT',
+  'EMPLOYEE_PAYSLIP',
+  'PROFILE_PHOTO',
 ] as const;
 export type FilePurpose = (typeof FILE_PURPOSES)[number];
 

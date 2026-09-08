@@ -40,6 +40,8 @@ import {
   CraneApplication,
 } from './entities/crane-application.entity';
 import type { CraneApplicationStatus } from './entities/crane-application.entity';
+import { FEATURE } from '../../auth/permissions.constants';
+import { NotificationService } from '../../notifications/notification.service';
 
 export interface SubmissionContext {
   ip?: string;
@@ -102,6 +104,7 @@ export class CraneApplicationService {
     private readonly spamCheck: SpamCheckService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationService,
   ) {}
 
   // =======================================================================
@@ -248,6 +251,31 @@ export class CraneApplicationService {
         `${uploads.certificates.length} certificate(s)`,
     );
 
+    /*
+     * CRANE_APPLICATIONS, not CRANE_CAREERS. These records carry nationality
+     * and residency status, which is exactly why the two were made separate
+     * permissions — somebody who may publish a vacancy should not learn from
+     * the bell who applied for it.
+     */
+    await this.notifications.raise({
+      siteCode: SITE_CODE,
+      featureCode: FEATURE.CRANE_APPLICATIONS,
+      category: 'jobs',
+      lead: 'Job application',
+      body: job
+        ? `${application.fullName} applied for ${job.title}`
+        : `${application.fullName} sent a speculative application`,
+      /*
+       * The admin route, by id. It read `/crane-candidates/<reference>` and
+       * was doubly wrong: no such path is mounted, and every detail screen
+       * fetches by uuid through a ParseUUIDPipe, so a reference number would
+       * have 400'd even had the path existed.
+       */
+      link: `/crane/candidates/${application.id}`,
+      sourceType: 'crane_application',
+      sourceId: application.id,
+    });
+
     return {
       referenceNo: application.referenceNo,
       message:
@@ -266,8 +294,16 @@ export class CraneApplicationService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
+    /*
+     * The role is joined, not left to the caller. `scoped()` selects an
+     * explicit column list, so this stays a narrow join rather than dragging
+     * the whole advert along: a candidate list needs the title and the ref,
+     * and a screen that had only `jobId` would have to fetch every advert to
+     * print one name per row.
+     */
     const qb = this.scoped()
-      .select(LIST_COLUMNS)
+      .leftJoin('application.job', 'job')
+      .select([...LIST_COLUMNS, 'job.id', 'job.title', 'job.refCode'])
       .orderBy('application.createdDate', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
@@ -317,6 +353,7 @@ export class CraneApplicationService {
   /** The full record — the withheld columns included. */
   async findById(id: string): Promise<CraneApplication> {
     const application = await this.scoped()
+      .leftJoinAndSelect('application.job', 'job')
       .leftJoinAndSelect('application.cvFile', 'cvFile')
       .leftJoinAndSelect('application.certificateFiles', 'certificateFiles')
       .addSelect([
@@ -379,6 +416,80 @@ export class CraneApplicationService {
     );
 
     return this.findById(id);
+  }
+
+  /**
+   * A short-lived link to the CV, and the request goes on the timeline.
+   *
+   * Its own route rather than the generic files one for two reasons. The
+   * permission: `/admin/files/:id/download-url` is gated on FEATURE.FILES, so
+   * a recruiter holding CRANE_APPLICATIONS and nothing else could not open the
+   * CV of a candidate they are otherwise trusted with. And the record: reading
+   * someone's CV is an access worth keeping, which the generic route does not
+   * write. The IT board has worked this way since it shipped.
+   */
+  async cvUrl(
+    id: string,
+    actor: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    const application = await this.findById(id);
+
+    if (!application.cvFileId) {
+      throw new GoneException('No CV is attached to this application');
+    }
+
+    const link = await this.files.downloadUrl(application.cvFileId, SITE_CODE);
+
+    await this.eventRepo.save(
+      this.eventRepo.create({
+        applicationId: id,
+        eventType: 'CV_ACCESSED',
+        actor,
+        note: null,
+        metadata: { fileId: application.cvFileId },
+      }),
+    );
+
+    return link;
+  }
+
+  /**
+   * A short-lived link to one of the certificates, and the request is logged.
+   *
+   * Membership is verified rather than trusted: without it this route would
+   * hand out a signed URL for ANY stored file to anyone holding
+   * CRANE_APPLICATIONS, by passing a uuid that has nothing to do with the
+   * application in the path.
+   */
+  async certificateUrl(
+    id: string,
+    fileId: string,
+    actor: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    const application = await this.findById(id);
+
+    const attached = (application.certificateFiles ?? []).some(
+      (file) => file.id === fileId,
+    );
+    if (!attached) {
+      throw new NotFoundException(
+        'That file is not attached to this application',
+      );
+    }
+
+    const link = await this.files.downloadUrl(fileId, SITE_CODE);
+
+    await this.eventRepo.save(
+      this.eventRepo.create({
+        applicationId: id,
+        eventType: 'CERTIFICATE_ACCESSED',
+        actor,
+        note: null,
+        metadata: { fileId },
+      }),
+    );
+
+    return link;
   }
 
   /**

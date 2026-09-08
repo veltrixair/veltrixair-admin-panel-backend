@@ -37,6 +37,17 @@ export const FEATURE = {
    * and reading applicants must be grantable independently.
    */
   CRANE_APPLICATIONS: 112,
+
+  /**
+   * Employee records, onboarding documents and payslips.
+   *
+   * Deliberately not folded into ADMINS. Administering accounts and reading
+   * somebody's payslip are different powers: an IT admin who can create logins
+   * has no business in a colleague's salary, and HR needs the personnel file
+   * without administering anything at all. Granted to Super Admin and HR
+   * Manager, and to nobody else.
+   */
+  HR: 113,
 } as const;
 
 export const PERMISSION = {
@@ -52,6 +63,8 @@ export const ROLE = {
   RECRUITER: 103,
   SALES: 104,
   VIEWER: 105,
+  /** Created, awaiting a role. Grants nothing — see the StaffOnboarding migration. */
+  PENDING: 106,
 } as const;
 
 /**

@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { PaginatedResult } from '../common/dto/pagination-query.dto';
 import { JobLocationMaster } from '../master-data/entities/job-location-master.entity';
+import { OfficeMaster } from '../master-data/entities/office-master.entity';
 import { ListJobsAdminDto, ListJobsDto } from './dto/list-jobs.dto';
 import { CreateJobDto, UpdateJobDto } from './dto/upsert-job.dto';
 import { toJobDetail, toJobListItem } from './dto/job-response.dto';
@@ -29,6 +30,8 @@ export class CareersService {
     private readonly jobRepo: Repository<JobPosting>,
     @InjectRepository(JobLocationMaster)
     private readonly locationRepo: Repository<JobLocationMaster>,
+    @InjectRepository(OfficeMaster)
+    private readonly officeRepo: Repository<OfficeMaster>,
     @InjectRepository(JobApplication)
     private readonly applicationRepo: Repository<JobApplication>,
   ) {}
@@ -157,6 +160,7 @@ export class CareersService {
 
     const job = this.jobRepo.create({
       ...this.mapScalars(dto),
+      officeCode: await this.resolveOffice(siteCode, dto.officeCode),
       siteCode,
       refCode: dto.refCode,
       slug: dto.slug,
@@ -166,6 +170,50 @@ export class CareersService {
 
     const saved = await this.jobRepo.save(job);
     return this.findById(saved.id, siteCode);
+  }
+
+  /**
+   * The office a role is filed under: the one asked for, or the site default.
+   *
+   * `office_code` is NOT NULL with a RESTRICT foreign key, so leaving the
+   * field out cannot mean "no office" — it has to mean a real one. First by
+   * display order is the headquarters, which is what an unspecified role
+   * belongs to until somebody says otherwise.
+   *
+   * Throws rather than guessing a code if the site has no office at all: a
+   * foreign key violation deep in a save is a worse answer than saying so.
+   */
+  private async resolveOffice(
+    siteCode: number,
+    officeCode?: number,
+  ): Promise<number> {
+    /*
+     * A supplied code is checked, not trusted. `office_code` carries a
+     * RESTRICT foreign key and nothing else validated it, so an unknown one
+     * surfaced as a raw constraint violation — a 500 quoting the constraint
+     * name at somebody who mistyped a number.
+     */
+    if (officeCode !== undefined) {
+      const chosen = await this.officeRepo.findOne({
+        where: { officeCode, siteCode, isActive: true, isDeleted: false },
+      });
+      if (!chosen) {
+        throw new BadRequestException(`Unknown or inactive office: ${officeCode}`);
+      }
+      return chosen.officeCode;
+    }
+
+    const office = await this.officeRepo.findOne({
+      where: { siteCode, isActive: true, isDeleted: false },
+      order: { displayOrder: 'ASC' },
+    });
+    if (!office) {
+      throw new BadRequestException(
+        'No office is configured for this site, so a role cannot be filed. ' +
+          'Add one, or send an officeCode.',
+      );
+    }
+    return office.officeCode;
   }
 
   async update(

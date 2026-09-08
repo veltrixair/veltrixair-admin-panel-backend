@@ -53,12 +53,20 @@ export class ListCraneSiteVisitsDto extends PaginationQueryDto {
   overdue?: boolean;
 }
 
-/** CANCELLED is admin-settable; the customer cancels through their token. */
+/**
+ * CANCELLED is admin-settable; the customer cancels through their token.
+ *
+ * SCHEDULED is absent: a date and the status move together, through
+ * `/schedule`. Setting it here would leave `scheduled_at` null, and the
+ * customer's tracking page would show a confirmed visit with no date on it.
+ */
+const SETTABLE = VISIT_STATUSES.filter((s) => s !== 'SCHEDULED');
+
 export class UpdateCraneSiteVisitStatusDto {
-  @IsIn(VISIT_STATUSES, {
-    message: `status must be one of: ${VISIT_STATUSES.join(', ')}`,
+  @IsIn(SETTABLE, {
+    message: `status must be one of: ${SETTABLE.join(', ')}`,
   })
-  status: VisitStatus;
+  status: Exclude<VisitStatus, 'SCHEDULED'>;
 
   @IsOptional()
   @IsString()

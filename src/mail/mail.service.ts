@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { FEATURE } from '../auth/permissions.constants';
+import { NotificationService } from '../notifications/notification.service';
 
 export interface MailMessage {
   to: string;
@@ -22,9 +24,25 @@ export interface MailMessage {
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    // NotificationsModule is @Global, so this needs no import here.
+    private readonly notifications: NotificationService,
+  ) {}
 
-  async send(message: MailMessage): Promise<boolean> {
+  /**
+   * `context.siteCode` turns a failure into something somebody sees.
+   *
+   * Without it a bounce is a line in a log nobody reads, and the person who
+   * was supposed to receive an acknowledgement simply never gets one. This
+   * service is global and knows nothing about brands, so the caller has to say
+   * which dashboard should be told; callers that do not pass it keep the old
+   * behaviour of logging and moving on.
+   */
+  async send(
+    message: MailMessage,
+    context?: { siteCode: number },
+  ): Promise<boolean> {
     try {
       await this.dispatch(message);
       return true;
@@ -32,6 +50,22 @@ export class MailService {
       this.logger.error(
         `Failed to send "${message.subject}" to ${message.to}: ${(error as Error).message}`,
       );
+
+      if (context) {
+        await this.notifications.raise({
+          siteCode: context.siteCode,
+          featureCode: FEATURE.ADMINS,
+          category: 'system',
+          lead: 'Email failed to send',
+          body: `${message.to} · "${message.subject}"`,
+          link: '/settings',
+          sourceType: 'mail_failure',
+          // Nobody chose for this to happen, so it reaches everyone who could
+          // act on it rather than excluding an actor.
+          sourceId: null,
+        });
+      }
+
       return false;
     }
   }
