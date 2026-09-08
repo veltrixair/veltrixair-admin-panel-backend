@@ -153,12 +153,20 @@ export class MasterDataService {
     siteCode: number,
   ): Promise<InsightFilterOptions> {
     const active = { isActive: true, isDeleted: false, siteCode };
+    /*
+     * Regions are not site-scoped, and `region_masters` has no `site_code`
+     * column to scope them by — "KSA" is the same territory whichever
+     * dashboard is asking. Reusing `active` here made TypeORM throw on the
+     * unknown property, which rejected the whole Promise.all and took the
+     * types and topics down with it.
+     */
+    const activeAnySite = { isActive: true, isDeleted: false };
     const order = { displayOrder: 'ASC' as const };
 
     const [types, topics, regions] = await Promise.all([
       this.articleTypeRepo.find({ where: active, order }),
       this.articleTopicRepo.find({ where: active, order }),
-      this.regionRepo.find({ where: active, order }),
+      this.regionRepo.find({ where: activeAnySite, order }),
     ]);
 
     return {

@@ -14,6 +14,12 @@ export const CRANE_APPLICATION_EVENT_TYPES = [
   'ACKNOWLEDGED',
   'STAGE_CHANGED',
   'CV_ATTACHED',
+  /* Somebody opened the CV. An access to personal data, so it is recorded. */
+  'CV_ACCESSED',
+  /* Somebody opened a ticket or card. Its own type, not CV_ACCESSED with a
+     flag — the timeline is read by people, and a wrong label in an audit
+     trail is worse than no label. */
+  'CERTIFICATE_ACCESSED',
   'ASSIGNED',
   'UNASSIGNED',
   'NOTE_ADDED',

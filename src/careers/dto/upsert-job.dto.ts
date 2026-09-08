@@ -59,9 +59,19 @@ export class CreateJobDto {
   @IsIn(WORK_MODES)
   workMode: WorkMode;
 
+  /**
+   * Which office the role reports into.
+   *
+   * Optional, matching the update DTO. The admin editor has no Office field —
+   * the approved design does not show one — so requiring it here made every
+   * "New job role" fail with a validator message about a control nobody could
+   * see. Omit it and the service files the role under the site's first office
+   * by display order; the column stays NOT NULL either way.
+   */
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  officeCode: number;
+  officeCode?: number;
 
   @IsString()
   @MaxLength(100)
@@ -161,7 +171,7 @@ export class UpdateJobDto extends CreateJobDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  declare officeCode: number;
+  declare officeCode?: number;
 
   @IsOptional()
   @IsString()

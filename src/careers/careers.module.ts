@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JobLocationMaster } from '../master-data/entities/job-location-master.entity';
+import { OfficeMaster } from '../master-data/entities/office-master.entity';
 import { AdminCareersController } from './admin-careers.controller';
 import { CareersService } from './careers.service';
 import { JobApplication } from '../applications/entities/job-application.entity';
@@ -14,7 +15,12 @@ import { PublicCareersController } from './public-careers.controller';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([JobPosting, JobLocationMaster, JobApplication]),
+    TypeOrmModule.forFeature([
+      JobPosting,
+      JobLocationMaster,
+      OfficeMaster,
+      JobApplication,
+    ]),
   ],
   controllers: [PublicCareersController, AdminCareersController],
   providers: [CareersService],

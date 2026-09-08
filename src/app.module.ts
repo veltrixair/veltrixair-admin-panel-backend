@@ -14,7 +14,9 @@ import { validateEnv } from './config/env.validation';
 import { ContactModule } from './contact/contact.module';
 import { DatabaseModule } from './database/database.module';
 import { FilesModule } from './files/files.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { DiscoveryModule } from './discovery/discovery.module';
+import { HrModule } from './hr/hr.module';
 import { InsightsModule } from './insights/insights.module';
 import { MailModule } from './mail/mail.module';
 import { MasterDataModule } from './master-data/master-data.module';
@@ -54,6 +56,7 @@ import { MasterDataModule } from './master-data/master-data.module';
     MasterDataModule,
     FilesModule,
 
+    NotificationsModule,
     // Feature modules
     ContactModule,
     CareersModule,
@@ -64,6 +67,7 @@ import { MasterDataModule } from './master-data/master-data.module';
     PrivacyModule,
     InsightsModule,
     DiscoveryModule,
+    HrModule,
   ],
   controllers: [AppController],
   providers: [

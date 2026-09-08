@@ -82,6 +82,36 @@ export class AdminCraneApplicationController {
     return this.applications.listEvents(id);
   }
 
+  /**
+   * A time-limited link to the CV. Gated on CRANE_APPLICATIONS, not FILES,
+   * and the access is written to the application's timeline.
+   */
+  @Get(':id/cv-url')
+  @Permissions(FEATURE.CRANE_APPLICATIONS, PERMISSION.VIEW)
+  @ApiOperation({ summary: 'Signed link to the CV; the access is recorded' })
+  @ResponseMessage('Download link issued')
+  cvUrl(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    return this.applications.cvUrl(id, admin.email);
+  }
+
+  /** The same, for one of the tickets or cards attached to the application. */
+  @Get(':id/certificates/:fileId/url')
+  @Permissions(FEATURE.CRANE_APPLICATIONS, PERMISSION.VIEW)
+  @ApiOperation({
+    summary: 'Signed link to a certificate; the access is recorded',
+  })
+  @ResponseMessage('Download link issued')
+  certificateUrl(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    return this.applications.certificateUrl(id, fileId, admin.email);
+  }
+
   @Patch(':id/status')
   @Permissions(FEATURE.CRANE_APPLICATIONS, PERMISSION.UPDATE)
   @ApiOperation({
