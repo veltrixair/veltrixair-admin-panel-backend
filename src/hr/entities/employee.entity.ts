@@ -16,6 +16,21 @@ import { OfficeMaster } from '../../master-data/entities/office-master.entity';
 import { EmployeeDocument } from './employee-document.entity';
 import { EmployeePayslip } from './employee-payslip.entity';
 
+/**
+ * The four an administrator may choose.
+ *
+ * ON_HOLD is the one a document count could never express: the file is
+ * neither moving nor finished, and nobody should be chasing it — a visa, a
+ * background check, a joiner who has not started yet.
+ */
+export const ONBOARDING_STATUSES = [
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'ON_HOLD',
+  'COMPLETED',
+] as const;
+export type OnboardingStatus = (typeof ONBOARDING_STATUSES)[number];
+
 export const EMPLOYMENT_TYPES = [
   'FULL_TIME',
   'PART_TIME',
@@ -150,6 +165,27 @@ export class Employee {
    */
   @Column({ name: 'monthly_net_pay', type: 'numeric', precision: 12, scale: 2, nullable: true })
   monthlyNetPay: string | null;
+
+  /**
+   * Where this person is in onboarding, as somebody decided — not as the
+   * document counts imply.
+   *
+   * It used to be neither stored nor decided: the panel read "all documents
+   * verified" as complete and everything else as in progress, which made the
+   * status a second rendering of the counts beside it and could not say that
+   * a file is parked, or finished because a requirement was waived.
+   *
+   * The counts are still there and still useful. They are just no longer the
+   * thing that answers this question.
+   */
+  @Index('idx_employees_onboarding_status')
+  @Column({
+    name: 'onboarding_status',
+    type: 'varchar',
+    length: 20,
+    default: 'NOT_STARTED',
+  })
+  onboardingStatus: OnboardingStatus;
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;

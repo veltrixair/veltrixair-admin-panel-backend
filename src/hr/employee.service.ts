@@ -100,6 +100,11 @@ export class EmployeeService {
     if (query.workMode) {
       qb.andWhere('employee.workMode = :mode', { mode: query.workMode });
     }
+    if (query.onboardingStatus) {
+      qb.andWhere('employee.onboardingStatus = :onboardingStatus', {
+        onboardingStatus: query.onboardingStatus,
+      });
+    }
     if (query.withoutAccount) {
       // The picker behind "add user": people the company employs who cannot
       // sign in yet. NOT EXISTS rather than a join, so somebody is listed once
@@ -334,6 +339,15 @@ export class EmployeeService {
       patch.monthlyNetPay = dto.monthlyNetPay.toFixed(2);
     }
     if (dto.isActive !== undefined) patch.isActive = dto.isActive;
+    /*
+     * Set here and nowhere else. Nothing in this service derives it, and the
+     * document routes deliberately leave it alone — verifying the last file
+     * does not mark somebody onboarded, because deciding that is the point of
+     * the field.
+     */
+    if (dto.onboardingStatus !== undefined) {
+      patch.onboardingStatus = dto.onboardingStatus;
+    }
 
     if (Object.keys(patch).length) {
       await this.employeeRepo.update({ id }, patch);
