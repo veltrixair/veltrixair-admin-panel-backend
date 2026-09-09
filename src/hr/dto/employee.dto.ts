@@ -16,8 +16,10 @@ import {
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import {
   EMPLOYMENT_TYPES,
+  ONBOARDING_STATUSES,
   WORK_MODES,
 } from '../entities/employee.entity';
+import type { OnboardingStatus } from '../entities/employee.entity';
 import type { EmploymentType, WorkMode } from '../entities/employee.entity';
 import {
   DOCUMENT_STATUSES,
@@ -114,6 +116,22 @@ export class CreateEmployeeDto {
 
 /** Every field optional — PATCH semantics. `employeeCode` is never settable. */
 export class UpdateEmployeeDto {
+  /**
+   * Set by hand, and the only way it changes.
+   *
+   * Deliberately not validated against the document counts. Marking somebody
+   * complete with a file still missing is a thing HR does and means — a
+   * waived requirement, a joiner who started before the paperwork cleared —
+   * so the server records the decision and the panel shows the counts beside
+   * it. Refusing it here would make the field automatic again by another
+   * route.
+   */
+  @IsOptional()
+  @IsIn(ONBOARDING_STATUSES, {
+    message: `onboardingStatus must be one of: ${ONBOARDING_STATUSES.join(', ')}`,
+  })
+  onboardingStatus?: OnboardingStatus;
+
   @IsOptional()
   @Transform(trimmed)
   @IsString()
@@ -188,6 +206,16 @@ export class UpdateEmployeeDto {
 }
 
 export class ListEmployeesDto extends PaginationQueryDto {
+  /*
+   * The filter the list could not offer while the status was worked out in
+   * the browser — there was nothing here to filter on.
+   */
+  @IsOptional()
+  @IsIn(ONBOARDING_STATUSES, {
+    message: `onboardingStatus must be one of: ${ONBOARDING_STATUSES.join(', ')}`,
+  })
+  onboardingStatus?: OnboardingStatus;
+
   @IsOptional()
   @IsString()
   @MaxLength(150)
