@@ -1,12 +1,33 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { Application } from 'express';
 import { AppModule } from './app.module';
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  /*
+   * Trust the reverse proxy in front of us.
+   *
+   * In production nginx terminates TLS and forwards to this process, so the
+   * socket address Express sees is nginx's, not the visitor's. Without this,
+   * every request appears to come from the same IP — which quietly breaks two
+   * things that both depend on knowing who is calling:
+   *
+   *   - the login throttle (5 per minute) becomes one shared bucket, so a
+   *     handful of people signing in together start getting 429s. It reads
+   *     like an outage rather than a misconfiguration.
+   *   - spam_check's ip_hash records a hash of the proxy, identically for
+   *     everyone, making the signal worthless.
+   *
+   * `1` means trust exactly one hop. Higher values would let a client forge
+   * X-Forwarded-For entries and impersonate another address.
+   */
+  const expressApp = app.getHttpAdapter().getInstance() as Application;
+  expressApp.set('trust proxy', 1);
 
   app.useGlobalPipes(
     new ValidationPipe({
