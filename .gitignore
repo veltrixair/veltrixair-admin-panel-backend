@@ -47,7 +47,13 @@ config/prod.env
 .env.development.local
 .env.test.local
 .env.production.local
-storage/
+
+# Uploaded files in local development (LOCAL_STORAGE_DIR, resolved from the
+# project root). Anchored with a leading slash: written as `storage/` this
+# matched a directory of that name at any depth, which silently kept every
+# storage driver in src/files/storage/ out of the repository — so a fresh
+# clone could not build.
+/storage/
 
 # Docs are not versioned.
 #
