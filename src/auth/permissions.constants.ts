@@ -48,6 +48,16 @@ export const FEATURE = {
    * Manager, and to nobody else.
    */
   HR: 113,
+
+  /**
+   * Leads captured on the last slide of the Knode HMS product deck.
+   *
+   * Its own code rather than riding on IT_CONTACT, because the two are not the
+   * same material: a contact enquiry is somebody asking to be sold to, while
+   * this is a record of what a hospital director agreed to in a room, with the
+   * mobile number they agreed it on. Granted to Super Admin and Sales.
+   */
+  KNODE: 114,
 } as const;
 
 export const PERMISSION = {
