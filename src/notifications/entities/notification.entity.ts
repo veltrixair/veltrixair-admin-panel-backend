@@ -23,6 +23,8 @@ export const NOTIFICATION_CATEGORIES = [
   'quotes',
   /** Crane: a request for an engineer to visit a site. */
   'visits',
+  /** IT: a lead captured on the last slide of the Knode HMS product deck. */
+  'knode',
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
