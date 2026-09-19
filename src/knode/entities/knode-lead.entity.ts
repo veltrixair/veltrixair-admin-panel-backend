@@ -59,19 +59,19 @@ export const statusesFor = (type: KnodeLeadType): readonly KnodeLeadStatus[] =>
  * A lead captured on the last slide of the Knode HMS product deck.
  *
  * Unlike every other submission in this codebase, these do not come from a
- * website. The deck is a sales tool carried into hospital meeting rooms, so a
- * lead is typed while sitting with the director — often with poor connectivity
- * — and may reach us minutes or days later.
+ * website. The deck is a sales tool carried into hospital meeting rooms, and a
+ * lead is typed while sitting with the director. It is posted and stored as it
+ * is saved — there is no queue.
  *
- * Two consequences shape this table:
+ * Two columns still earn their place from where the deck is used:
  *
- *   `client_key` is unique and supplied by the deck, so replaying an offline
- *   queue cannot create duplicates. It is the only idempotency guarantee the
- *   sync endpoint has.
+ *   `client_key` is unique and supplied by the deck. With no queue to replay
+ *   it guards a narrower case, but a real one: a rep on bad hospital wifi
+ *   pressing save twice must not produce two leads.
  *
- *   `saved_at` is when the rep pressed save; `created_date` is when the row
- *   reached us. For every other module those are the same moment, and here
- *   they are not — the first is the one the sales conversation happened at.
+ *   `saved_at` is the rep's own clock at the moment of saving, kept separate
+ *   from `created_date` because a retry seconds or minutes later should not
+ *   move when the conversation actually happened.
  */
 @Entity({ name: 'knode_leads' })
 @Unique('vtx_knode_leads_reference_no_unique', ['referenceNo'])
@@ -156,7 +156,15 @@ export class KnodeLead {
   @Column({ name: 'saved_at', type: 'timestamptz' })
   savedAt: Date;
 
-  /** When it reached this server. Equals created_date unless it was queued. */
+  /**
+   * When it reached this server.
+   *
+   * Vestigial now the queue is gone — with a lead posted as it is saved this
+   * is `created_date` by another name. Left in place rather than dropped in a
+   * second migration over a merged table; it costs a nullable timestamp, and
+   * the column is the natural home for the answer again if the deck ever does
+   * gain an offline mode.
+   */
   @Column({ name: 'synced_at', type: 'timestamptz', nullable: true })
   syncedAt: Date | null;
 

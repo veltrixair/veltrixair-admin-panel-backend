@@ -23,8 +23,17 @@ export const NOTIFICATION_CATEGORIES = [
   'quotes',
   /** Crane: a request for an engineer to visit a site. */
   'visits',
-  /** IT: a lead captured on the last slide of the Knode HMS product deck. */
+  /** IT: a lead captured on the last slide of the kNODE HMS product deck. */
   'knode',
+  /**
+   * IT: a "Book a demo" submission from the kNODE website.
+   *
+   * Its own heading rather than sharing `knode`. The deck captures a lead a
+   * salesperson already has in the room; this is a stranger asking to be shown
+   * the software, behind a different feature and worked by different people.
+   * One chip for both would make either impossible to filter for.
+   */
+  'knodeDemo',
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 

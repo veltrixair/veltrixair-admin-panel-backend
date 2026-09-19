@@ -39,13 +39,6 @@ export interface KnodeLeadResult {
   created: boolean;
 }
 
-export interface KnodeSyncResult {
-  received: number;
-  created: number;
-  duplicates: number;
-  references: string[];
-}
-
 export interface KnodeStats {
   meetings: number;
   meetingsNew: number;
@@ -213,7 +206,9 @@ export class KnodeService {
       siteCode,
       featureCode: FEATURE.KNODE,
       category: 'knode',
-      lead: isMeeting ? 'Demo booked on the deck' : 'Client confirmed on the deck',
+      lead: isMeeting
+        ? 'Demo booked on the deck'
+        : 'Client confirmed on the deck',
       body: isMeeting
         ? `${dto.hospital.trim()} · ${dto.person.trim()} · demo ${dto.date ?? 'TBC'} ${dto.time ?? ''}`.trim()
         : `${dto.hospital.trim()} · ${dto.person.trim()}`,
@@ -228,36 +223,6 @@ export class KnodeService {
     });
 
     return { referenceNo: captured.referenceNo, created: true };
-  }
-
-  /**
-   * Flush an offline queue.
-   *
-   * Each lead is captured on its own rather than in one transaction: one bad
-   * record in a rep's backlog must not reject the other nineteen, and every
-   * capture is already idempotent so a partial run is simply re-sent.
-   */
-  async sync(
-    leads: CreateKnodeLeadDto[],
-    context: CaptureContext,
-    siteCode: number,
-  ): Promise<KnodeSyncResult> {
-    const references: string[] = [];
-    let created = 0;
-    let duplicates = 0;
-
-    for (const dto of leads) {
-      const result = await this.capture(dto, context, siteCode);
-      references.push(result.referenceNo);
-      if (result.created) created += 1;
-      else duplicates += 1;
-    }
-
-    this.logger.log(
-      `Knode sync — ${leads.length} received, ${created} new, ${duplicates} already held`,
-    );
-
-    return { received: leads.length, created, duplicates, references };
   }
 
   /**

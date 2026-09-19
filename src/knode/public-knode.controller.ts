@@ -11,15 +11,8 @@ import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { SITE } from '../auth/permissions.constants';
-import {
-  CreateKnodeLeadDto,
-  SyncKnodeLeadsDto,
-} from './dto/create-knode-lead.dto';
-import {
-  KnodeLeadResult,
-  KnodeService,
-  KnodeSyncResult,
-} from './knode.service';
+import { CreateKnodeLeadDto } from './dto/create-knode-lead.dto';
+import { KnodeLeadResult, KnodeService } from './knode.service';
 
 /**
  * The deck's surface.
@@ -28,8 +21,9 @@ import {
  * rep's laptop, which is why there is no CurrentSite decorator here: the deck
  * is an IT-unit product and has no brand to resolve. The site is pinned.
  *
- * Both routes are idempotent on the lead's `clientKey`, so a rep whose
- * connection dropped mid-send can simply press sync again.
+ * One route: a lead is posted when the rep saves it, and stored. It is still
+ * idempotent on the lead's `clientKey`, so a deck that retries after a dropped
+ * connection cannot create the same lead twice.
  */
 @ApiTags('Knode (deck)')
 @ApiHeader({
@@ -45,9 +39,19 @@ export class PublicKnodeController {
     private readonly config: ConfigService,
   ) {}
 
-  /** One lead, sent the moment the rep saves it and the network allows. */
+  /**
+   * One lead, sent the moment the rep saves it and the network allows.
+   *
+   * 100 per hour per IP. Higher than any of the website forms because the
+   * caller is not a visitor with one enquiry — it is the deck, posting each
+   * lead as a rep captures it, and a conference stand produces them in bursts
+   * that a per-visitor limit would read as abuse.
+   *
+   * The real protection here is the shared key below, not the ceiling. This
+   * exists to bound the damage if that key ever escapes the laptop it lives on.
+   */
   @Post('leads')
-  @Throttle({ default: { limit: 60, ttl: 3_600_000 } })
+  @Throttle({ default: { limit: 100, ttl: 3_600_000 } })
   @ApiOperation({ summary: 'Capture one lead from the deck' })
   @ResponseMessage('Lead received')
   capture(
@@ -58,30 +62,6 @@ export class PublicKnodeController {
 
     return this.knodeService.capture(
       dto,
-      { ip: request.ip, userAgent: request.get('user-agent') },
-      SITE.IT,
-    );
-  }
-
-  /**
-   * The offline queue, flushed in one call.
-   *
-   * A looser throttle than the single-lead route: a rep back from a week of
-   * visits legitimately sends one large batch, and being refused for it would
-   * teach them to stop pressing sync.
-   */
-  @Post('leads/sync')
-  @Throttle({ default: { limit: 20, ttl: 3_600_000 } })
-  @ApiOperation({ summary: 'Flush the deck’s offline queue' })
-  @ResponseMessage('Queue synced')
-  sync(
-    @Body() dto: SyncKnodeLeadsDto,
-    @Req() request: Request,
-  ): Promise<KnodeSyncResult> {
-    this.assertKey(request);
-
-    return this.knodeService.sync(
-      dto.leads,
       { ip: request.ip, userAgent: request.get('user-agent') },
       SITE.IT,
     );
