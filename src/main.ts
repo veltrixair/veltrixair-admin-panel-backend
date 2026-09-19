@@ -54,6 +54,13 @@ async function bootstrap() {
   app.enableCors({
     origin: corsOrigins,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    /*
+     * A header missing from this list is not rejected with an error — the
+     * browser refuses to send the request at all, and the client sees a
+     * network failure indistinguishable from the server being down. Both
+     * custom headers below are sent by first-party callers and have to be
+     * named here or they fail in exactly that confusing way.
+     */
     allowedHeaders: [
       'Content-Type',
       'Authorization',
@@ -62,6 +69,11 @@ async function bootstrap() {
       'Origin',
       'X-Requested-With',
       'Access-Control-Allow-Headers',
+      // Which brand a public form belongs to. The three public sites send it
+      // on every submission, and they are cross-origin to this API.
+      'X-Site-Code',
+      // The shared key the kNODE product deck sends with every lead.
+      'X-Knode-Key',
     ],
     exposedHeaders: ['Authorization', 'Content-Length', 'Content-Range'],
     credentials: true,

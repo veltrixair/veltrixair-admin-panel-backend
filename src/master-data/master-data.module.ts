@@ -15,6 +15,12 @@ import { IndustryMaster } from './entities/industry-master.entity';
 import { RegionMaster } from './entities/region-master.entity';
 import { JobLocationMaster } from './entities/job-location-master.entity';
 import { OfficeMaster } from './entities/office-master.entity';
+import { KnodeBedBandMaster } from './entities/knode-bed-band-master.entity';
+import { KnodeCallWindowMaster } from './entities/knode-call-window-master.entity';
+import { KnodeContactRoleMaster } from './entities/knode-contact-role-master.entity';
+import { KnodeFacilityTypeMaster } from './entities/knode-facility-type-master.entity';
+import { KnodeModuleMaster } from './entities/knode-module-master.entity';
+import { KnodeOpdBandMaster } from './entities/knode-opd-band-master.entity';
 import { PracticeAreaMaster } from './entities/practice-area-master.entity';
 import { SiteMaster } from './entities/site-master.entity';
 import { MasterDataService } from './master-data.service';
@@ -34,6 +40,12 @@ import { MasterDataService } from './master-data.service';
       IndustryMaster,
       OfficeMaster,
       PracticeAreaMaster,
+      KnodeModuleMaster,
+      KnodeFacilityTypeMaster,
+      KnodeBedBandMaster,
+      KnodeOpdBandMaster,
+      KnodeContactRoleMaster,
+      KnodeCallWindowMaster,
       JobLocationMaster,
       ArticleTypeMaster,
       ArticleTopicMaster,

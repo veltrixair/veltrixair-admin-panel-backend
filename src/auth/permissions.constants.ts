@@ -58,6 +58,18 @@ export const FEATURE = {
    * mobile number they agreed it on. Granted to Super Admin and Sales.
    */
   KNODE: 114,
+
+  /**
+   * "Book a demo" submissions from knode.veltrixair.com.
+   *
+   * Separate from KNODE above, even though both are kNODE leads worked by the
+   * same people. The deck records what a hospital director agreed to in a
+   * room; this is a web form carrying a hospital's bed count, its daily
+   * outpatient footfall and the mobile number of whoever runs it. Different
+   * provenance, different table, and a grant somebody may want to give
+   * independently. Granted to Super Admin and Sales.
+   */
+  KNODE_DEMO: 115,
 } as const;
 
 export const PERMISSION = {

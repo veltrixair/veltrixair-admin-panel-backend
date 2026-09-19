@@ -1,8 +1,5 @@
-import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  ArrayNotEmpty,
-  IsArray,
   IsDateString,
   IsEmail,
   IsIn,
@@ -12,7 +9,6 @@ import {
   Matches,
   MaxLength,
   MinLength,
-  ValidateNested,
 } from 'class-validator';
 import { KNODE_LEAD_TYPES } from '../entities/knode-lead.entity';
 import type { KnodeLeadType } from '../entities/knode-lead.entity';
@@ -88,19 +84,4 @@ export class CreateKnodeLeadDto {
    */
   @IsISO8601()
   savedAt: string;
-}
-
-/**
- * The offline queue, flushed in one call.
- *
- * Capped at 50: a rep returning from a week of hospital visits has tens of
- * leads, not thousands, and an unbounded array is a denial-of-service shape.
- */
-export class SyncKnodeLeadsDto {
-  @IsArray()
-  @ArrayNotEmpty()
-  @ArrayMaxSize(50)
-  @ValidateNested({ each: true })
-  @Type(() => CreateKnodeLeadDto)
-  leads: CreateKnodeLeadDto[];
 }

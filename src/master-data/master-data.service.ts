@@ -16,6 +16,12 @@ import { EnquiryTopicMaster } from './entities/enquiry-topic-master.entity';
 import { IndustryMaster } from './entities/industry-master.entity';
 import { JobLocationMaster } from './entities/job-location-master.entity';
 import { OfficeMaster } from './entities/office-master.entity';
+import { KnodeBedBandMaster } from './entities/knode-bed-band-master.entity';
+import { KnodeCallWindowMaster } from './entities/knode-call-window-master.entity';
+import { KnodeContactRoleMaster } from './entities/knode-contact-role-master.entity';
+import { KnodeFacilityTypeMaster } from './entities/knode-facility-type-master.entity';
+import { KnodeModuleMaster } from './entities/knode-module-master.entity';
+import { KnodeOpdBandMaster } from './entities/knode-opd-band-master.entity';
 import { PracticeAreaMaster } from './entities/practice-area-master.entity';
 
 export interface FormOption {
@@ -39,6 +45,30 @@ export interface ContactFormOptions {
   countries: FormOption[];
   industries: FormOption[];
   timelines: FormOption[];
+}
+
+/** A kNODE product, with enough for the form to know what it can offer. */
+export interface KnodeModuleOption {
+  code: number;
+  name: string;
+  audience: string;
+  availability: string;
+  /**
+   * Whether it has shipped. The form uses this to decide whether picking it
+   * means "show me" or "tell me when" — and the backend decides the same thing
+   * again on submission, because a browser is not where that call belongs.
+   */
+  isLive: boolean;
+}
+
+/** Every dropdown on the Book a demo form. */
+export interface KnodeDemoOptions {
+  modules: KnodeModuleOption[];
+  facilityTypes: FormOption[];
+  bedBands: FormOption[];
+  opdBands: FormOption[];
+  roles: FormOption[];
+  callWindows: FormOption[];
 }
 
 export interface CareerFilterOptions {
@@ -112,6 +142,18 @@ export class MasterDataService {
     private readonly workAuthRepo: Repository<WorkAuthorisationMaster>,
     @InjectRepository(ApplicationSourceMaster)
     private readonly applicationSourceRepo: Repository<ApplicationSourceMaster>,
+    @InjectRepository(KnodeModuleMaster)
+    private readonly knodeModuleRepo: Repository<KnodeModuleMaster>,
+    @InjectRepository(KnodeFacilityTypeMaster)
+    private readonly knodeFacilityTypeRepo: Repository<KnodeFacilityTypeMaster>,
+    @InjectRepository(KnodeBedBandMaster)
+    private readonly knodeBedBandRepo: Repository<KnodeBedBandMaster>,
+    @InjectRepository(KnodeOpdBandMaster)
+    private readonly knodeOpdBandRepo: Repository<KnodeOpdBandMaster>,
+    @InjectRepository(KnodeContactRoleMaster)
+    private readonly knodeContactRoleRepo: Repository<KnodeContactRoleMaster>,
+    @InjectRepository(KnodeCallWindowMaster)
+    private readonly knodeCallWindowRepo: Repository<KnodeCallWindowMaster>,
   ) {}
 
   async getDiscoveryPractices(
@@ -422,5 +464,57 @@ export class MasterDataService {
       where: { isActive: true, isDeleted: false },
       order: { displayOrder: 'ASC' },
     });
+  }
+  /**
+   * Every dropdown on the Book a demo form, in one response.
+   *
+   * Six lists the kNODE website currently hardcodes in its own bundle. Serving
+   * them here is the point: two copies of a list is exactly how the crane
+   * form fell out of step with its own database, and the module list in
+   * particular changes every time something ships.
+   */
+  async getKnodeDemoOptions(siteCode: number): Promise<KnodeDemoOptions> {
+    const active = { isActive: true, isDeleted: false, siteCode };
+    const byOrder = { displayOrder: 'ASC' as const };
+
+    const [modules, facilityTypes, bedBands, opdBands, roles, callWindows] =
+      await Promise.all([
+        this.knodeModuleRepo.find({ where: active, order: byOrder }),
+        this.knodeFacilityTypeRepo.find({ where: active, order: byOrder }),
+        this.knodeBedBandRepo.find({ where: active, order: byOrder }),
+        this.knodeOpdBandRepo.find({ where: active, order: byOrder }),
+        this.knodeContactRoleRepo.find({ where: active, order: byOrder }),
+        this.knodeCallWindowRepo.find({ where: active, order: byOrder }),
+      ]);
+
+    return {
+      modules: modules.map((m) => ({
+        code: m.moduleCode,
+        name: m.moduleName,
+        audience: m.audience,
+        availability: m.availability,
+        isLive: m.isLive,
+      })),
+      facilityTypes: facilityTypes.map((f) => ({
+        code: f.facilityTypeCode,
+        label: f.facilityTypeLabel,
+      })),
+      bedBands: bedBands.map((b) => ({
+        code: b.bedBandCode,
+        label: b.bedBandLabel,
+      })),
+      opdBands: opdBands.map((o) => ({
+        code: o.opdBandCode,
+        label: o.opdBandLabel,
+      })),
+      roles: roles.map((r) => ({
+        code: r.contactRoleCode,
+        label: r.contactRoleLabel,
+      })),
+      callWindows: callWindows.map((c) => ({
+        code: c.callWindowCode,
+        label: c.callWindowLabel,
+      })),
+    };
   }
 }

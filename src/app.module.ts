@@ -18,6 +18,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { HrModule } from './hr/hr.module';
 import { InsightsModule } from './insights/insights.module';
+import { KnodeDemoModule } from './knode-demo/knode-demo.module';
 import { KnodeModule } from './knode/knode.module';
 import { MailModule } from './mail/mail.module';
 import { MasterDataModule } from './master-data/master-data.module';
@@ -70,6 +71,7 @@ import { MasterDataModule } from './master-data/master-data.module';
     DiscoveryModule,
     HrModule,
     KnodeModule,
+    KnodeDemoModule,
   ],
   controllers: [AppController],
   providers: [
