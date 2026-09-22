@@ -47,4 +47,21 @@ config/prod.env
 .env.development.local
 .env.test.local
 .env.production.local
-storage/
+
+# Uploaded files in local development (LOCAL_STORAGE_DIR, resolved from the
+# project root). Anchored with a leading slash: written as `storage/` this
+# matched a directory of that name at any depth, which silently kept every
+# storage driver in src/files/storage/ out of the repository — so a fresh
+# clone could not build.
+/storage/
+
+# Docs are not versioned.
+#
+# Two of these fight every merge: the PDF and DOCX are binaries git cannot
+# combine, and the Postman collection is one 6,800-line JSON that every
+# feature branch edits. The scripts that generate them are committed, which
+# is the part worth sharing.
+#
+# privacy-enquiries.export.json also lived here and holds real submissions.
+# Removing it from HEAD does not remove it from history — see commit 6d83481.
+docs/

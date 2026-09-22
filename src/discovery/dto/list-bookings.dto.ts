@@ -6,11 +6,23 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { BOOKING_STATUSES } from '../entities/discovery-booking.entity';
 import type { BookingStatus } from '../entities/discovery-booking.entity';
+
+/**
+ * Which end of the diary to read from.
+ *
+ * A booking list spans past and future, so neither direction is right on its
+ * own: `soonest` puts the oldest finished session first, `latest` puts the
+ * furthest-off one first. Pairing it with `from`/`to` is what makes it useful —
+ * "upcoming, soonest first" is `from=<now>&sort=soonest`.
+ */
+export const BOOKING_SORTS = ['soonest', 'latest'] as const;
+export type BookingSort = (typeof BOOKING_SORTS)[number];
 
 export class ListBookingsDto extends PaginationQueryDto {
   @IsOptional()
@@ -26,6 +38,38 @@ export class ListBookingsDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(150)
   search?: string;
+
+  /** One architect's diary. */
+  @IsOptional()
+  @IsUUID()
+  architectId?: string;
+
+  /** Sessions starting at or after this instant. */
+  @IsOptional()
+  @IsISO8601({ strict: false })
+  from?: string;
+
+  /** Sessions starting at or before this instant. */
+  @IsOptional()
+  @IsISO8601({ strict: false })
+  to?: string;
+
+  /** Defaults to `latest`, which is how this list has always ordered. */
+  @IsOptional()
+  @IsIn(BOOKING_SORTS)
+  sort?: BookingSort;
+}
+
+/**
+ * Emergency cover: hand the session to someone else at the same hour.
+ *
+ * Only the architect is named. The time is deliberately not settable — the
+ * attendee chose that hour around their own diary, so moving it solves our
+ * problem by creating theirs.
+ */
+export class ReassignBookingDto {
+  @IsUUID()
+  architectId: string;
 }
 
 export class UpdateBookingStatusDto {

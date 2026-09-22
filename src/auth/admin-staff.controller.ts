@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -27,10 +29,16 @@ import {
   AssignRoleDto,
   CreateStaffDto,
   ReplaceRolesDto,
+  SetPasswordDto,
+  SetRolePermissionsDto,
   UpdateStaffDto,
 } from './dto/upsert-staff.dto';
 import { StaffService } from './staff.service';
-import type { StaffMember, StaffWithPassword } from './staff.service';
+import type {
+  AssignableStaff,
+  StaffMember,
+  StaffWithPassword,
+} from './staff.service';
 
 /**
  * Staff administration — accounts and the roles they hold.
@@ -58,7 +66,7 @@ export class AdminStaffController {
     @Query() query: ListStaffDto,
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<PaginatedResult<StaffMember>> {
-    return this.staffService.list(query, admin.siteCode);
+    return this.staffService.list(query, admin.siteCode, admin.id);
   }
 
   /**
@@ -71,8 +79,70 @@ export class AdminStaffController {
     summary: 'Roles and what each one grants (read-only — edited by migration)',
   })
   @ResponseMessage('Roles retrieved')
-  listRoles() {
-    return this.staffService.listRoles();
+  listRoles(@CurrentUser() admin: AuthenticatedAdmin) {
+    return this.staffService.listRoles(admin.siteCode);
+  }
+
+  /**
+   * Change what a role may do — on this dashboard only.
+   *
+   * A role's meaning is per-brand now: the seeded definition is the default,
+   * and this records the differences. Kept under `roles/` rather than on a
+   * staff member, because it changes what a role *is* rather than who holds it.
+   */
+  @Put('roles/:roleCode/permissions')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(FEATURE.ADMINS, PERMISSION.UPDATE)
+  @ApiOperation({
+    summary: "Set a role's permissions on your dashboard",
+  })
+  @ResponseMessage('Role permissions updated')
+  async setRolePermissions(
+    @Param('roleCode', ParseIntPipe) roleCode: number,
+    @Body() dto: SetRolePermissionsDto,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ) {
+    await this.staffService.setRolePermissions(
+      roleCode,
+      dto.grants,
+      admin.id,
+      admin.siteCode,
+      admin.roleCode,
+    );
+    return this.staffService.listRoles(admin.siteCode);
+  }
+
+  /** Put a role back to its seeded definition on this dashboard. */
+  @Delete('roles/:roleCode/permissions')
+  @Permissions(FEATURE.ADMINS, PERMISSION.UPDATE)
+  @ApiOperation({ summary: "Reset a role's permissions to the defaults" })
+  @ResponseMessage('Role permissions reset')
+  async resetRolePermissions(
+    @Param('roleCode', ParseIntPipe) roleCode: number,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ) {
+    await this.staffService.resetRolePermissions(
+      roleCode,
+      admin.id,
+      admin.siteCode,
+      admin.roleCode,
+    );
+    return this.staffService.listRoles(admin.siteCode);
+  }
+
+  /**
+   * The assignee picker's list. Any signed-in admin, by design — see the
+   * service. Declared above `:id` so the literal path wins the match.
+   */
+  @Get('assignable')
+  @ApiOperation({
+    summary: 'Colleagues on this dashboard a record may be assigned to',
+  })
+  @ResponseMessage('Assignable staff retrieved')
+  assignable(
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<AssignableStaff[]> {
+    return this.staffService.assignable(admin.siteCode, admin.id);
   }
 
   @Get(':id')
@@ -83,7 +153,7 @@ export class AdminStaffController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<StaffMember> {
-    return this.staffService.view(id, admin.siteCode);
+    return this.staffService.view(id, admin.siteCode, admin.id);
   }
 
   @Get(':id/role-history')
@@ -96,25 +166,28 @@ export class AdminStaffController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<AdminRole[]> {
-    return this.staffService.listRoleHistory(id, admin.siteCode);
+    return this.staffService.listRoleHistory(id, admin.siteCode, admin.id);
   }
 
   /**
-   * Returns a one-time password in the response. Once mail is wired up this
-   * should become an invite link instead — a password that travels by hand is
-   * a password that ends up pasted into a chat window.
+   * Grant an employee a way in — the whole act, in one call.
+   *
+   * A password and a real role are both required. It used to be two steps,
+   * with an invitation issuing the credential afterwards; that left accounts
+   * that looked finished in the staff list and could not be used, so the two
+   * halves were merged and the invitation removed. Re-issuing a password later
+   * is `:id/reset-password`.
    */
   @Post()
   @Permissions(FEATURE.ADMINS, PERMISSION.CREATE)
   @ApiOperation({
-    summary:
-      'Create an account on your dashboard — returns a one-time password',
+    summary: 'Grant access — creates the account with its password and role',
   })
   @ResponseMessage('Staff account created')
   create(
     @Body() dto: CreateStaffDto,
     @CurrentUser() admin: AuthenticatedAdmin,
-  ): Promise<StaffWithPassword> {
+  ): Promise<StaffMember> {
     return this.staffService.create(dto, admin.id, admin.siteCode);
   }
 
@@ -190,6 +263,34 @@ export class AdminStaffController {
     return this.staffService.replaceRoles(
       id,
       dto.roleCodes,
+      admin.id,
+      admin.siteCode,
+    );
+  }
+
+  /**
+   * Set a password an administrator chose, rather than minting one.
+   *
+   * Separate from `reset-password` on purpose: that one issues a temporary
+   * credential and forces a change at next sign-in. This one is used when
+   * somebody is handed their password directly, so it is theirs to keep.
+   */
+  @Post(':id/set-password')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(FEATURE.ADMINS, PERMISSION.UPDATE)
+  @ApiOperation({
+    summary: 'Set a chosen password and end every session',
+  })
+  @ResponseMessage('Password set')
+  setPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetPasswordDto,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<StaffMember> {
+    return this.staffService.setPassword(
+      id,
+      dto.password,
+      dto.sendEmail ?? false,
       admin.id,
       admin.siteCode,
     );

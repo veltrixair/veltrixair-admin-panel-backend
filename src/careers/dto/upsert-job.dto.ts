@@ -6,6 +6,7 @@ import {
   IsIn,
   IsISO8601,
   IsInt,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -30,9 +31,15 @@ export class CreateJobDto {
   @MaxLength(200)
   title: string;
 
-  @IsOptional()
+  /**
+   * The whole advert. Required since the summary, responsibilities and
+   * requirements columns were folded into it — with those gone this is the
+   * only place the role is described at all, and a posting without one is a
+   * title on a careers page and nothing else.
+   */
   @IsString()
-  descriptionMdx?: string;
+  @IsNotEmpty({ message: 'Please write the job description.' })
+  descriptionMdx: string;
 
   @Type(() => Number)
   @IsInt()
@@ -52,9 +59,19 @@ export class CreateJobDto {
   @IsIn(WORK_MODES)
   workMode: WorkMode;
 
+  /**
+   * Which office the role reports into.
+   *
+   * Optional, matching the update DTO. The admin editor has no Office field —
+   * the approved design does not show one — so requiring it here made every
+   * "New job role" fail with a validator message about a control nobody could
+   * see. Omit it and the service files the role under the site's first office
+   * by display order; the column stays NOT NULL either way.
+   */
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  officeCode: number;
+  officeCode?: number;
 
   @IsString()
   @MaxLength(100)
@@ -154,7 +171,7 @@ export class UpdateJobDto extends CreateJobDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  declare officeCode: number;
+  declare officeCode?: number;
 
   @IsOptional()
   @IsString()
@@ -165,6 +182,18 @@ export class UpdateJobDto extends CreateJobDto {
   @IsString()
   @MaxLength(50)
   declare experienceLabel: string;
+
+  /**
+   * Optional on update, required on create.
+   *
+   * A PATCH that only closes a role must not have to resend the whole advert —
+   * but when it IS sent it still cannot be blanked, so the not-empty rule
+   * stays.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'The job description cannot be emptied.' })
+  declare descriptionMdx: string;
 }
 
 export class UpdateJobStatusDto {

@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayNotEmpty,
@@ -17,8 +17,13 @@ import {
 /**
  * The three-section form on veltrixairindustries.com/careers/.
  *
- * No CV field: the page asks candidates to reply to the acknowledgement with it
- * attached, so the file arrives later and is put on the record by an admin.
+ * Multipart, because the CV travels with it — so every scalar arrives as a
+ * string and needs @Type or @Transform to coerce. That is why the numeric and
+ * array fields look noisier here than on a JSON DTO.
+ *
+ * The files themselves are consumed by the interceptor before validation, so
+ * `resume` and `certificates` are declared at the bottom only to stop
+ * forbidNonWhitelisted rejecting an empty file row.
  */
 export class CreateCraneApplicationDto {
   // --- Section 01: position of interest -----------------------------------
@@ -84,6 +89,9 @@ export class CreateCraneApplicationDto {
   qualificationCode: number;
 
   /** EN, AR, HI, UR are the four the practice works in; others are accepted. */
+  @Transform(({ value }: { value: unknown }): unknown =>
+    typeof value === 'string' ? [value] : value,
+  )
   @IsArray()
   @ArrayNotEmpty({ message: 'Please list at least one working language.' })
   @ArrayMaxSize(10)
@@ -121,4 +129,16 @@ export class CreateCraneApplicationDto {
   @IsString()
   @MaxLength(500)
   sourcePage?: string;
+
+  /**
+   * Never read — the files are consumed by FileFieldsInterceptor before
+   * validation. Declared so that a client appending an empty file row does not
+   * trip forbidNonWhitelisted with "property resume should not exist", which is
+   * a baffling error for a field that is part of the contract.
+   */
+  @IsOptional()
+  resume?: unknown;
+
+  @IsOptional()
+  certificates?: unknown;
 }

@@ -1,6 +1,8 @@
 import {
   Column,
   CreateDateColumn,
+  JoinTable,
+  ManyToMany,
   DeleteDateColumn,
   Entity,
   Index,
@@ -50,10 +52,10 @@ export const CRANE_CLOSED_STATUSES: readonly CraneApplicationStatus[] = [
  * `select: false`, so a list of candidates cannot leak them by forgetting to
  * exclude them.
  *
- * No CV arrives with the form — the page tells candidates to reply to the
- * acknowledgement with it attached. `cvFileId` is filled in afterwards by
- * whoever handles that reply, which is what lets retention delete it: a CV that
- * only ever exists in an inbox is one nothing can clean up.
+ * The CV arrives with the form, and up to four certificates with it. That is a
+ * change from the original design, where the acknowledgement asked candidates
+ * to reply with their CV attached — a route only as reliable as the mail
+ * transport, which does not yet deliver.
  */
 @Entity({ name: 'crane_applications' })
 @Unique('vtx_crane_applications_reference_no_uq', ['referenceNo'])
@@ -178,6 +180,12 @@ export class CraneApplication {
   @Column({ name: 'working_languages', type: 'text', array: true })
   workingLanguages: string[];
 
+  /**
+   * What they hold, in words — "ISO 9927, valid to 2027".
+   *
+   * Kept alongside the uploads rather than replaced by them: a filename is
+   * usually IMG_2831.jpg, which tells a recruiter nothing.
+   */
   @Column({
     name: 'certifications',
     type: 'varchar',
@@ -190,8 +198,16 @@ export class CraneApplication {
   @Column({ name: 'background_summary', type: 'text', select: false })
   backgroundSummary: string;
 
-  // --- The CV, which arrives later ----------------------------------------
+  // --- Uploads -------------------------------------------------------------
 
+  /**
+   * Required at submit, but nullable in the column.
+   *
+   * One application predates the upload and legitimately has none. Making this
+   * NOT NULL would mean deleting a real submission or inventing a file, so the
+   * requirement lives in the service — where "an application made today must
+   * carry a CV" can be true without rewriting what happened yesterday.
+   */
   @Column({ name: 'cv_file_id', type: 'uuid', nullable: true })
   cvFileId: string | null;
 
@@ -205,6 +221,22 @@ export class CraneApplication {
   /** Moves with `cvFileId`; a CHECK constraint keeps the two in step. */
   @Column({ name: 'cv_attached_at', type: 'timestamptz', nullable: true })
   cvAttachedAt: Date | null;
+
+  /**
+   * Tickets and cards — ISO 9927, NDT Level II, a rigging licence.
+   *
+   * A join table rather than four columns, so the cap is a product rule the
+   * service enforces rather than a shape the schema is stuck with. Images are
+   * accepted for these and nowhere else: they are plastic cards, and people
+   * photograph them.
+   */
+  @ManyToMany(() => StoredFile)
+  @JoinTable({
+    name: 'crane_application_certificates',
+    joinColumn: { name: 'application_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'file_id', referencedColumnName: 'id' },
+  })
+  certificateFiles?: StoredFile[];
 
   // --- Pipeline -----------------------------------------------------------
 

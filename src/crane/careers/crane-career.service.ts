@@ -11,14 +11,17 @@ import { SITE_CODE } from '../applications/crane-application.constants';
 import { CraneAvailabilityMaster } from '../masters/entities/crane-availability-master.entity';
 import { CraneCareerQualificationMaster } from '../masters/entities/crane-career-qualification-master.entity';
 import { CraneCareerTrackMaster } from '../masters/entities/crane-career-track-master.entity';
+import { CraneDepartmentMaster } from '../masters/entities/crane-department-master.entity';
 import { CraneEmploymentTypeMaster } from '../masters/entities/crane-employment-type-master.entity';
 import { CraneExperienceBandMaster } from '../masters/entities/crane-experience-band-master.entity';
 import { CraneJobLocationMaster } from '../masters/entities/crane-job-location-master.entity';
+import { CraneServiceLineMaster } from '../masters/entities/crane-service-line-master.entity';
 import { CraneResidencyStatusMaster } from '../masters/entities/crane-residency-status-master.entity';
 import {
   ListCraneJobsDto,
   UpsertCraneJobDto,
 } from './dto/upsert-crane-job.dto';
+import { CraneApplication } from '../applications/entities/crane-application.entity';
 import { CraneJobPosting } from './entities/crane-job-posting.entity';
 import type { CraneJobStatus } from './entities/crane-job-posting.entity';
 
@@ -30,6 +33,17 @@ export interface CraneCareerOptions {
   qualifications: { code: number; label: string }[];
   locations: { code: number; label: string }[];
   employmentTypes: { code: number; label: string }[];
+  /** VTX-CRN-xx. Optional on a role — sales and QHSE sit outside the catalogue. */
+  serviceLines: { code: number; label: string }[];
+  /** Carries its tag as well as its label — the job list prints ER, SV, IN. */
+  departments: { code: number; label: string; abbreviation: string }[];
+}
+
+/** A crane advert on the admin board, carrying how many people applied. */
+export interface CraneJobPostingWithApplicants extends CraneJobPosting {
+  applicantCount: number;
+  /** Still sitting at SUBMITTED — nobody has screened them yet. */
+  newApplicantCount: number;
 }
 
 @Injectable()
@@ -37,6 +51,8 @@ export class CraneCareerService {
   constructor(
     @InjectRepository(CraneJobPosting)
     private readonly jobRepo: Repository<CraneJobPosting>,
+    @InjectRepository(CraneDepartmentMaster)
+    private readonly departmentRepo: Repository<CraneDepartmentMaster>,
     @InjectRepository(CraneCareerTrackMaster)
     private readonly trackRepo: Repository<CraneCareerTrackMaster>,
     @InjectRepository(CraneExperienceBandMaster)
@@ -47,10 +63,14 @@ export class CraneCareerService {
     private readonly residencyRepo: Repository<CraneResidencyStatusMaster>,
     @InjectRepository(CraneCareerQualificationMaster)
     private readonly qualificationRepo: Repository<CraneCareerQualificationMaster>,
+    @InjectRepository(CraneServiceLineMaster)
+    private readonly serviceLineRepo: Repository<CraneServiceLineMaster>,
     @InjectRepository(CraneJobLocationMaster)
     private readonly locationRepo: Repository<CraneJobLocationMaster>,
     @InjectRepository(CraneEmploymentTypeMaster)
     private readonly employmentRepo: Repository<CraneEmploymentTypeMaster>,
+    @InjectRepository(CraneApplication)
+    private readonly applicationRepo: Repository<CraneApplication>,
   ) {}
 
   // =======================================================================
@@ -77,6 +97,8 @@ export class CraneCareerService {
       qualifications,
       locations,
       employmentTypes,
+      departments,
+      serviceLines,
     ] = await Promise.all([
       this.trackRepo.find(live),
       this.bandRepo.find(live),
@@ -85,10 +107,22 @@ export class CraneCareerService {
       this.qualificationRepo.find(live),
       this.locationRepo.find(live),
       this.employmentRepo.find(live),
+      this.departmentRepo.find(live),
+      this.serviceLineRepo.find(live),
     ]);
 
     return {
       tracks: tracks.map((t) => ({ code: t.trackCode, label: t.trackName })),
+      /*
+       * Departments carry their tag as well as their name — the job list
+       * prints ER, SV, IN rather than the full label, and deriving it from
+       * the name would collide (Inspection and Installation both give IN).
+       */
+      departments: departments.map((d) => ({
+        code: d.departmentCode,
+        label: d.departmentName,
+        abbreviation: d.abbreviation,
+      })),
       experienceBands: bands.map((b) => ({
         code: b.bandCode,
         label: b.bandName,
@@ -112,6 +146,10 @@ export class CraneCareerService {
       employmentTypes: employmentTypes.map((e) => ({
         code: e.employmentTypeCode,
         label: e.employmentTypeName,
+      })),
+      serviceLines: serviceLines.map((s) => ({
+        code: s.serviceLineCode,
+        label: s.serviceLineName,
       })),
     };
   }
@@ -143,14 +181,55 @@ export class CraneCareerService {
   // Admin
   // =======================================================================
 
-  listForAdmin(
+  /** Includes drafts and closed roles, and how many people applied to each. */
+  async listForAdmin(
     query: ListCraneJobsDto,
-  ): Promise<PaginatedResult<CraneJobPosting>> {
+  ): Promise<PaginatedResult<CraneJobPostingWithApplicants>> {
     const qb = this.baseQuery(query);
     if (query.status) {
       qb.andWhere('job.status = :status', { status: query.status });
     }
-    return this.paginate(qb, query);
+
+    const page = await this.paginate(qb, query);
+    return { ...page, items: await this.withApplicantCounts(page.items) };
+  }
+
+  /**
+   * Attaches applicant counts to a page of adverts.
+   *
+   * Mirrors the IT board deliberately, so the two careers screens can share a
+   * column. What differs is only the name of the untouched state — a crane
+   * application arrives as SUBMITTED, an IT one as NEW.
+   *
+   * Counts only applications tied to a posting. Six crane tracks include a
+   * general "keep on file" application with a null `job_id`, and those belong
+   * to nobody's advert; adding them to every row would be an invented number.
+   */
+  private async withApplicantCounts(
+    jobs: CraneJobPosting[],
+  ): Promise<CraneJobPostingWithApplicants[]> {
+    if (!jobs.length) return [];
+
+    const rows = await this.applicationRepo
+      .createQueryBuilder('application')
+      .select('application.job_id', 'jobId')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect(
+        "COUNT(*) FILTER (WHERE application.status = 'SUBMITTED')",
+        'unreviewed',
+      )
+      .where('application.job_id IN (:...ids)', { ids: jobs.map((j) => j.id) })
+      .andWhere('application.is_deleted = false')
+      .groupBy('application.job_id')
+      .getRawMany<{ jobId: string; total: string; unreviewed: string }>();
+
+    const byJob = new Map(rows.map((r) => [r.jobId, r]));
+
+    return jobs.map((job) => ({
+      ...job,
+      applicantCount: Number(byJob.get(job.id)?.total ?? 0),
+      newApplicantCount: Number(byJob.get(job.id)?.unreviewed ?? 0),
+    }));
   }
 
   async findById(id: string): Promise<CraneJobPosting> {
@@ -210,6 +289,7 @@ export class CraneCareerService {
     return this.jobRepo
       .createQueryBuilder('job')
       .leftJoinAndSelect('job.track', 'track')
+      .leftJoinAndSelect('job.department', 'department')
       .leftJoinAndSelect('job.serviceLine', 'serviceLine')
       .leftJoinAndSelect('job.location', 'location')
       .leftJoinAndSelect('job.employmentType', 'employmentType')
@@ -222,6 +302,11 @@ export class CraneCareerService {
       .where('job.isDeleted = false')
       .andWhere('job.siteCode = :siteCode', { siteCode: SITE_CODE });
 
+    if (query.departmentCode !== undefined) {
+      qb.andWhere('job.departmentCode = :departmentCode', {
+        departmentCode: query.departmentCode,
+      });
+    }
     if (query.trackCode !== undefined) {
       qb.andWhere('job.trackCode = :trackCode', { trackCode: query.trackCode });
     }
@@ -235,6 +320,9 @@ export class CraneCareerService {
         q: `%${query.search}%`,
       });
     }
+    if (query.hotOnly === 'true') {
+      qb.andWhere('job.hotRole = true');
+    }
     return qb;
   }
 
@@ -246,7 +334,9 @@ export class CraneCareerService {
     const limit = query.limit ?? 20;
 
     const [items, total] = await qb
-      .orderBy('job.displayOrder', 'ASC')
+      // Hot roles first, then the curated order — how the board reads.
+      .orderBy('job.hotRole', 'DESC')
+      .addOrderBy('job.displayOrder', 'ASC')
       .addOrderBy('job.createdDate', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
@@ -299,6 +389,14 @@ export class CraneCareerService {
         }),
       ]);
     }
+    if (dto.departmentCode !== undefined) {
+      checks.push([
+        `departmentCode ${dto.departmentCode}`,
+        this.departmentRepo.findOne({
+          where: { departmentCode: dto.departmentCode, ...live },
+        }),
+      ]);
+    }
     if (dto.locationCode !== undefined) {
       checks.push([
         `locationCode ${dto.locationCode}`,
@@ -312,6 +410,14 @@ export class CraneCareerService {
         `employmentTypeCode ${dto.employmentTypeCode}`,
         this.employmentRepo.findOne({
           where: { employmentTypeCode: dto.employmentTypeCode, ...live },
+        }),
+      ]);
+    }
+    if (dto.serviceLineCode != null) {
+      checks.push([
+        `serviceLineCode ${dto.serviceLineCode}`,
+        this.serviceLineRepo.findOne({
+          where: { serviceLineCode: dto.serviceLineCode, ...live },
         }),
       ]);
     }
@@ -345,6 +451,10 @@ export class CraneCareerService {
       slug: dto.slug ?? current?.slug,
       title: dto.title ?? current?.title,
       trackCode: dto.trackCode ?? current?.trackCode,
+      departmentCode:
+        dto.departmentCode === undefined
+          ? (current?.departmentCode ?? null)
+          : (dto.departmentCode ?? null),
       // `undefined` keeps what is there, `null` clears it — the distinction the
       // IT module's `??` chain cannot express.
       serviceLineCode:
@@ -365,6 +475,7 @@ export class CraneCareerService {
       saudiNationalsOnly:
         dto.saudiNationalsOnly ?? current?.saudiNationalsOnly ?? false,
       openings: dto.openings ?? current?.openings ?? 1,
+      hotRole: dto.hotRole ?? current?.hotRole ?? false,
       status: dto.status ?? current?.status ?? 'DRAFT',
       displayOrder: dto.displayOrder ?? current?.displayOrder ?? 0,
       seoTitle: dto.seoTitle ?? current?.seoTitle ?? null,

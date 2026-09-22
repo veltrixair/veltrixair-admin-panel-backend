@@ -41,6 +41,7 @@ import { CraneJobPosting } from './careers/entities/crane-job-posting.entity';
 import { CraneApplication } from './applications/entities/crane-application.entity';
 import { CraneApplicationEvent } from './applications/entities/crane-application-event.entity';
 import { CraneCareerTrackMaster } from './masters/entities/crane-career-track-master.entity';
+import { CraneDepartmentMaster } from './masters/entities/crane-department-master.entity';
 import { CraneExperienceBandMaster } from './masters/entities/crane-experience-band-master.entity';
 import { CraneResidencyStatusMaster } from './masters/entities/crane-residency-status-master.entity';
 import { CraneAvailabilityMaster } from './masters/entities/crane-availability-master.entity';
@@ -114,6 +115,7 @@ import { AdminCraneApplicationController } from './applications/admin-crane-appl
       CraneApplication,
       CraneApplicationEvent,
       CraneCareerTrackMaster,
+      CraneDepartmentMaster,
       CraneExperienceBandMaster,
       CraneResidencyStatusMaster,
       CraneAvailabilityMaster,

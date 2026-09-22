@@ -37,6 +37,39 @@ export const FEATURE = {
    * and reading applicants must be grantable independently.
    */
   CRANE_APPLICATIONS: 112,
+
+  /**
+   * Employee records, onboarding documents and payslips.
+   *
+   * Deliberately not folded into ADMINS. Administering accounts and reading
+   * somebody's payslip are different powers: an IT admin who can create logins
+   * has no business in a colleague's salary, and HR needs the personnel file
+   * without administering anything at all. Granted to Super Admin and HR
+   * Manager, and to nobody else.
+   */
+  HR: 113,
+
+  /**
+   * Leads captured on the last slide of the Knode HMS product deck.
+   *
+   * Its own code rather than riding on IT_CONTACT, because the two are not the
+   * same material: a contact enquiry is somebody asking to be sold to, while
+   * this is a record of what a hospital director agreed to in a room, with the
+   * mobile number they agreed it on. Granted to Super Admin and Sales.
+   */
+  KNODE: 114,
+
+  /**
+   * "Book a demo" submissions from knode.veltrixair.com.
+   *
+   * Separate from KNODE above, even though both are kNODE leads worked by the
+   * same people. The deck records what a hospital director agreed to in a
+   * room; this is a web form carrying a hospital's bed count, its daily
+   * outpatient footfall and the mobile number of whoever runs it. Different
+   * provenance, different table, and a grant somebody may want to give
+   * independently. Granted to Super Admin and Sales.
+   */
+  KNODE_DEMO: 115,
 } as const;
 
 export const PERMISSION = {
@@ -52,6 +85,8 @@ export const ROLE = {
   RECRUITER: 103,
   SALES: 104,
   VIEWER: 105,
+  /** Created, awaiting a role. Grants nothing — see the StaffOnboarding migration. */
+  PENDING: 106,
 } as const;
 
 /**

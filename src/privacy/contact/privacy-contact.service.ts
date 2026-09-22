@@ -15,6 +15,8 @@ import { ListPrivacyContactDto } from './dto/manage-privacy-contact.dto';
 import { PrivacyContactEvent } from './entities/privacy-contact-event.entity';
 import { PrivacyContactEnquiry } from './entities/privacy-contact-enquiry.entity';
 import type { PrivacyEnquiryStatus } from './entities/privacy-contact-enquiry.entity';
+import { FEATURE } from '../../auth/permissions.constants';
+import { NotificationService } from '../../notifications/notification.service';
 
 const REFERENCE_PREFIX = 'VDP-ENQ';
 const REFERENCE_SEQUENCE = 'privacy_contact_ref_seq';
@@ -78,6 +80,7 @@ export class PrivacyContactService {
     private readonly spamCheck: SpamCheckService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationService,
   ) {}
 
   // =======================================================================
@@ -206,6 +209,20 @@ export class PrivacyContactService {
     this.logger.log(
       `Privacy enquiry ${enquiry.referenceNo} from ${enquiry.organisation}`,
     );
+
+    // Its own feature, and the "Contact us" heading — the privacy practice's
+    // enquiries are a separate permission from IT's, but they read the same
+    // way on the screen.
+    await this.notifications.raise({
+      siteCode: SITE_CODE,
+      featureCode: FEATURE.PRIVACY_ENQUIRIES,
+      category: 'contact',
+      lead: 'Privacy enquiry',
+      body: `${enquiry.fullName} · ${enquiry.organisation}`,
+      link: `/dp/contact/${enquiry.id}`,
+      sourceType: 'privacy_enquiry',
+      sourceId: enquiry.id,
+    });
 
     return {
       referenceNo: enquiry.referenceNo,

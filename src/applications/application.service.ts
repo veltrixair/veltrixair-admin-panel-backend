@@ -17,7 +17,9 @@ import { ReferenceNumberService } from '../common/services/reference-number.serv
 import { SpamCheckService } from '../common/services/spam-check.service';
 import { FilesService } from '../files/files.service';
 import type { UploadedFile } from '../files/files.service';
+import { FEATURE } from '../auth/permissions.constants';
 import { MailService } from '../mail/mail.service';
+import { NotificationService } from '../notifications/notification.service';
 import { MasterDataService } from '../master-data/master-data.service';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { ListApplicationsDto } from './dto/list-applications.dto';
@@ -110,6 +112,7 @@ export class ApplicationService {
     private readonly spamCheck: SpamCheckService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationService,
   ) {}
 
   // =======================================================================
@@ -269,6 +272,23 @@ export class ApplicationService {
       });
 
       await this.sendConfirmation(application, job.title);
+
+      /*
+       * IT_APPLICATIONS, not IT_CAREERS: publishing a vacancy and reading who
+       * applied are separate permissions, because an application carries a
+       * candidate's name, CV and contact details. A recruiter who may only
+       * edit adverts should not learn from the bell who is applying.
+       */
+      await this.notifications.raise({
+        siteCode,
+        featureCode: FEATURE.IT_APPLICATIONS,
+        category: 'jobs',
+        lead: 'Job application',
+        body: `${application.firstName} ${application.lastName} applied for ${job.title}`,
+        link: `/candidates/${application.id}`,
+        sourceType: 'job_application',
+        sourceId: application.id,
+      });
 
       this.logger.log(
         `Application ${application.referenceNo} for "${job.title}" (spam score ${spam.score})`,

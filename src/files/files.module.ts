@@ -8,6 +8,7 @@ import { FilesService } from './files.service';
 import { GatedDownloadService } from './gated-download.service';
 import { LocalFilesController } from './local-files.controller';
 import { LocalStorageService } from './storage/local-storage.service';
+import { S3StorageService } from './storage/s3-storage.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { SupabaseStorageService } from './storage/supabase-storage.service';
 import { NoopVirusScanner, VIRUS_SCANNER } from './validation/virus-scanner';
@@ -15,10 +16,16 @@ import { NoopVirusScanner, VIRUS_SCANNER } from './validation/virus-scanner';
 /**
  * File storage.
  *
- * Supabase Storage is the driver whenever its credentials are present. Without
- * them the module falls back to the filesystem so the upload pipeline still
- * works locally — the fallback is unsuitable for production and says so on
- * startup.
+ * Three drivers, chosen by STORAGE_DRIVER:
+ *
+ *   s3        production on AWS. Never selected implicitly — it has to be
+ *             asked for, so a developer's machine is never caught writing to
+ *             the production bucket by accident.
+ *   supabase  the default while SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+ *             are both present.
+ *   local     the fallback, so the upload pipeline still works with no
+ *             credentials at all. Unsuitable for production, and says so on
+ *             startup.
  */
 @Global()
 @Module({
@@ -45,6 +52,13 @@ import { NoopVirusScanner, VIRUS_SCANNER } from './validation/virus-scanner';
         // it), so warning there fired even when Supabase was the active
         // driver — a log line that said the opposite of what was happening.
         const logger = new Logger('FileStorage');
+        if (driver === 's3') {
+          logger.log(
+            `Using S3 — bucket "${config.getOrThrow<string>('S3_BUCKET')}"`,
+          );
+          return new S3StorageService(config);
+        }
+
         if (driver === 'supabase') {
           logger.log(
             `Using Supabase Storage — bucket "${config.get<string>('SUPABASE_STORAGE_BUCKET', 'veltrixair-assets')}"`,
@@ -53,7 +67,9 @@ import { NoopVirusScanner, VIRUS_SCANNER } from './validation/virus-scanner';
         }
 
         logger.warn(
-          'Using local filesystem storage — development only. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for Supabase Storage.',
+          'Using local filesystem storage — development only. Set ' +
+            'STORAGE_DRIVER=s3 with S3_BUCKET and AWS_REGION for production, ' +
+            'or SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for Supabase.',
         );
         return local;
       },

@@ -36,12 +36,15 @@ export class ListCraneApplicationsDto extends PaginationQueryDto {
   jobId?: string;
 
   /**
-   * The queue that matters most day to day: applications whose CV has not yet
-   * come back by email, and which therefore cannot be screened.
+   * Candidates who attached no certificates.
+   *
+   * Replaces an `awaitingCv` filter that stopped meaning anything once the CV
+   * became part of the form. This is the queue that matters now: a role calling
+   * for ISO 9927 or an NDT card, and an applicant who sent neither.
    */
   @IsOptional()
   @ToBoolean()
-  awaitingCv?: boolean;
+  withoutCertificates?: boolean;
 
   /** Past the deadline the careers page published for their current stage. */
   @IsOptional()

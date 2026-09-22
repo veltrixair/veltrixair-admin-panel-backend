@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { SiteMaster } from '../master-data/entities/site-master.entity';
+import { Admin } from './entities/admin.entity';
 import { AdminRole } from './entities/admin-role.entity';
 import { FeatureMaster } from './entities/feature-master.entity';
 import { PermissionMaster } from './entities/permission-master.entity';
 import { RoleMaster } from './entities/role-master.entity';
 import { RolePermission } from './entities/role-permission.entity';
+import { ROLE } from './permissions.constants';
 
 export interface ResolvedPermission {
   feature: string;
@@ -32,6 +34,8 @@ export interface ResolvedPermission {
 @Injectable()
 export class PermissionService {
   constructor(
+    @InjectRepository(Admin)
+    private readonly adminRepo: Repository<Admin>,
     @InjectRepository(AdminRole)
     private readonly adminRoleRepo: Repository<AdminRole>,
     @InjectRepository(RolePermission)
@@ -55,12 +59,39 @@ export class PermissionService {
   ): Promise<boolean> {
     if (!(await this.holdsBadge(adminId, siteCode, roleCode))) return false;
 
-    const grant = await this.rolePermRepo.findOne({
-      where: { roleCode, featureCode, permissionCode },
-      select: ['id'],
-    });
+    /*
+     * The view, not the table.
+     *
+     * A unit can narrow or widen what a role does on its own dashboard, so the
+     * answer depends on where the question is asked. Reading the raw table
+     * here would enforce the seeded definition while the screen showed the
+     * overridden one — a guard and a nav that disagree, which is worse than
+     * either being wrong on its own.
+     */
+    const rows: unknown[] = await this.rolePermRepo.query(
+      `SELECT 1 FROM "effective_role_permissions"
+        WHERE "site_code" = $1 AND "role_code" = $2
+          AND "feature_code" = $3 AND "permission_code" = $4
+        LIMIT 1`,
+      [siteCode, roleCode, featureCode, permissionCode],
+    );
 
-    return !!grant;
+    return rows.length > 0;
+  }
+
+  /**
+   * Is this account still holding a password it did not choose?
+   *
+   * Read from the table on every request, like the badge check beside it — the
+   * flag clears mid-session the moment the password is changed, and a token
+   * signed before that must not keep asserting the old answer.
+   */
+  async mustChangePassword(adminId: string): Promise<boolean> {
+    const admin = await this.adminRepo.findOne({
+      where: { id: adminId, isDeleted: false },
+      select: ['id', 'mustChangePassword'],
+    });
+    return admin?.mustChangePassword ?? false;
   }
 
   /** Is this badge still in force? Nothing downstream is trusted without it. */
@@ -91,9 +122,21 @@ export class PermissionService {
    */
   async listSessionPermissions(
     roleCode: number,
+    siteCode: number,
   ): Promise<ResolvedPermission[]> {
+    /*
+     * Site-scoped, because the same role can mean different things on two
+     * dashboards. This is what the client draws its menu from, so it has to
+     * be the same set the guard will enforce.
+     */
     const [grants, features, permissions] = await Promise.all([
-      this.rolePermRepo.find({ where: { roleCode } }),
+      this.rolePermRepo.query(
+        `SELECT "feature_code" AS "featureCode",
+                "permission_code" AS "permissionCode"
+           FROM "effective_role_permissions"
+          WHERE "site_code" = $1 AND "role_code" = $2`,
+        [siteCode, roleCode],
+      ) as Promise<{ featureCode: number; permissionCode: number }[]>,
       this.featureRepo.find(),
       this.permissionRepo.find(),
     ]);
@@ -132,7 +175,18 @@ export class PermissionService {
     });
   }
 
-  /** Roles that actually have at least one permission — the sign-in dropdown. */
+  /**
+   * Roles the sign-in screen may offer.
+   *
+   * Roles with no permissions are excluded, because a picker that lists one is
+   * offering a session that can reach nothing. PENDING is excluded by the same
+   * rule and now also refused outright by resolveScope, so listing it would
+   * only ever produce a 403.
+   *
+   * That is safe for anything created now: granting access requires a real
+   * role, so PENDING cannot be reached. Accounts still holding it from before
+   * are moved off it by replacing their roles under Team & roles.
+   */
   async listAssignableRoles(): Promise<{ code: number; name: string }[]> {
     const grants = await this.rolePermRepo.find({ select: ['roleCode'] });
     const withGrants = new Set(grants.map((g) => g.roleCode));
@@ -143,7 +197,7 @@ export class PermissionService {
     });
 
     return roles
-      .filter((r) => withGrants.has(r.roleCode))
+      .filter((r) => withGrants.has(r.roleCode) && r.roleCode !== ROLE.PENDING)
       .map((r) => ({ code: r.roleCode, name: r.roleName }));
   }
 

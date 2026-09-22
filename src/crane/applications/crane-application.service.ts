@@ -30,6 +30,7 @@ import {
   RETENTION_MONTHS,
   SITE_CODE,
   STAGE_SLA_WORKING_DAYS,
+  MAX_CERTIFICATES,
 } from './crane-application.constants';
 import { CreateCraneApplicationDto } from './dto/create-crane-application.dto';
 import { ListCraneApplicationsDto } from './dto/manage-crane-application.dto';
@@ -39,6 +40,8 @@ import {
   CraneApplication,
 } from './entities/crane-application.entity';
 import type { CraneApplicationStatus } from './entities/crane-application.entity';
+import { FEATURE } from '../../auth/permissions.constants';
+import { NotificationService } from '../../notifications/notification.service';
 
 export interface SubmissionContext {
   ip?: string;
@@ -101,6 +104,7 @@ export class CraneApplicationService {
     private readonly spamCheck: SpamCheckService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationService,
   ) {}
 
   // =======================================================================
@@ -109,9 +113,16 @@ export class CraneApplicationService {
 
   async submit(
     dto: CreateCraneApplicationDto,
+    uploads: { resume: UploadedFile; certificates: UploadedFile[] },
     context: SubmissionContext,
   ): Promise<{ referenceNo: string; message: string }> {
     const submittedAt = new Date();
+
+    if (uploads.certificates.length > MAX_CERTIFICATES) {
+      throw new BadRequestException(
+        `Please attach no more than ${MAX_CERTIFICATES} certificates.`,
+      );
+    }
 
     await this.assertCodesExist(dto);
     const job = await this.resolveJob(dto);
@@ -146,6 +157,30 @@ export class CraneApplicationService {
     const retentionUntil = new Date(submittedAt);
     retentionUntil.setMonth(retentionUntil.getMonth() + RETENTION_MONTHS);
 
+    /*
+     * Files go to storage before the row is written, and are cleaned up by hand
+     * if the write then fails.
+     *
+     * The alternative — uploading inside the transaction — would hold a
+     * database transaction open across several network round trips to object
+     * storage, which is how a slow upload becomes a lock nobody can explain.
+     */
+    const stored: { id: string }[] = [];
+    let cv: { id: string };
+    try {
+      cv = await this.files.upload(uploads.resume, 'RESUME', null, SITE_CODE);
+      stored.push(cv);
+
+      for (const certificate of uploads.certificates) {
+        stored.push(
+          await this.files.upload(certificate, 'CERTIFICATE', null, SITE_CODE),
+        );
+      }
+    } catch (error) {
+      await this.discard(stored);
+      throw error;
+    }
+
     const application = await this.dataSource.transaction(async (manager) => {
       const referenceNo = await this.referenceNumbers.next(
         REFERENCE_PREFIX,
@@ -171,6 +206,9 @@ export class CraneApplicationService {
           workingLanguages: dto.workingLanguages,
           certifications: dto.certifications?.trim() ?? null,
           backgroundSummary: dto.backgroundSummary.trim(),
+          cvFileId: cv.id,
+          cvAttachedAt: submittedAt,
+          certificateFiles: stored.slice(1).map((file) => ({ id: file.id })),
           // Suspected spam is stored, never rejected — a false positive must
           // not lose a real candidate.
           status: spam.isSpam ? 'REJECTED' : 'SUBMITTED',
@@ -209,15 +247,40 @@ export class CraneApplicationService {
     }
 
     this.logger.log(
-      `Crane application ${application.referenceNo} — ${application.fullName}`,
+      `Crane application ${application.referenceNo} — ${application.fullName}, ` +
+        `${uploads.certificates.length} certificate(s)`,
     );
+
+    /*
+     * CRANE_APPLICATIONS, not CRANE_CAREERS. These records carry nationality
+     * and residency status, which is exactly why the two were made separate
+     * permissions — somebody who may publish a vacancy should not learn from
+     * the bell who applied for it.
+     */
+    await this.notifications.raise({
+      siteCode: SITE_CODE,
+      featureCode: FEATURE.CRANE_APPLICATIONS,
+      category: 'jobs',
+      lead: 'Job application',
+      body: job
+        ? `${application.fullName} applied for ${job.title}`
+        : `${application.fullName} sent a speculative application`,
+      /*
+       * The admin route, by id. It read `/crane-candidates/<reference>` and
+       * was doubly wrong: no such path is mounted, and every detail screen
+       * fetches by uuid through a ParseUUIDPipe, so a reference number would
+       * have 400'd even had the path existed.
+       */
+      link: `/crane/candidates/${application.id}`,
+      sourceType: 'crane_application',
+      sourceId: application.id,
+    });
 
     return {
       referenceNo: application.referenceNo,
       message:
         `Thank you. Your reference is ${application.referenceNo}. ` +
-        `Please reply to the acknowledgement email with your CV and any ` +
-        `certifications attached — we cannot progress an application without them.`,
+        `A recruiter will review your CV and respond within five working days.`,
     };
   }
 
@@ -231,8 +294,16 @@ export class CraneApplicationService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
+    /*
+     * The role is joined, not left to the caller. `scoped()` selects an
+     * explicit column list, so this stays a narrow join rather than dragging
+     * the whole advert along: a candidate list needs the title and the ref,
+     * and a screen that had only `jobId` would have to fetch every advert to
+     * print one name per row.
+     */
     const qb = this.scoped()
-      .select(LIST_COLUMNS)
+      .leftJoin('application.job', 'job')
+      .select([...LIST_COLUMNS, 'job.id', 'job.title', 'job.refCode'])
       .orderBy('application.createdDate', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
@@ -248,8 +319,13 @@ export class CraneApplicationService {
     if (query.jobId) {
       qb.andWhere('application.jobId = :jobId', { jobId: query.jobId });
     }
-    if (query.awaitingCv) {
-      qb.andWhere('application.cvFileId IS NULL');
+    if (query.withoutCertificates) {
+      qb.andWhere(
+        `NOT EXISTS (
+           SELECT 1 FROM crane_application_certificates c
+           WHERE c.application_id = application.id
+         )`,
+      );
     }
     if (query.overdue) {
       qb.andWhere('application.stageDueAt IS NOT NULL').andWhere(
@@ -277,6 +353,9 @@ export class CraneApplicationService {
   /** The full record — the withheld columns included. */
   async findById(id: string): Promise<CraneApplication> {
     const application = await this.scoped()
+      .leftJoinAndSelect('application.job', 'job')
+      .leftJoinAndSelect('application.cvFile', 'cvFile')
+      .leftJoinAndSelect('application.certificateFiles', 'certificateFiles')
       .addSelect([
         'application.nationality',
         'application.mobile',
@@ -340,24 +419,94 @@ export class CraneApplicationService {
   }
 
   /**
-   * Attach the CV that arrived by email reply.
+   * A short-lived link to the CV, and the request goes on the timeline.
    *
-   * Without this the CV lives only in an inbox — unretained, unsearchable, and
-   * invisible to the twelve-month deletion the page promises. Bringing it onto
-   * the record is what makes that promise keepable.
+   * Its own route rather than the generic files one for two reasons. The
+   * permission: `/admin/files/:id/download-url` is gated on FEATURE.FILES, so
+   * a recruiter holding CRANE_APPLICATIONS and nothing else could not open the
+   * CV of a candidate they are otherwise trusted with. And the record: reading
+   * someone's CV is an access worth keeping, which the generic route does not
+   * write. The IT board has worked this way since it shipped.
    */
-  async attachCv(
+  async cvUrl(
+    id: string,
+    actor: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    const application = await this.findById(id);
+
+    if (!application.cvFileId) {
+      throw new GoneException('No CV is attached to this application');
+    }
+
+    const link = await this.files.downloadUrl(application.cvFileId, SITE_CODE);
+
+    await this.eventRepo.save(
+      this.eventRepo.create({
+        applicationId: id,
+        eventType: 'CV_ACCESSED',
+        actor,
+        note: null,
+        metadata: { fileId: application.cvFileId },
+      }),
+    );
+
+    return link;
+  }
+
+  /**
+   * A short-lived link to one of the certificates, and the request is logged.
+   *
+   * Membership is verified rather than trusted: without it this route would
+   * hand out a signed URL for ANY stored file to anyone holding
+   * CRANE_APPLICATIONS, by passing a uuid that has nothing to do with the
+   * application in the path.
+   */
+  async certificateUrl(
+    id: string,
+    fileId: string,
+    actor: string,
+  ): Promise<{ url: string; expiresInSeconds: number }> {
+    const application = await this.findById(id);
+
+    const attached = (application.certificateFiles ?? []).some(
+      (file) => file.id === fileId,
+    );
+    if (!attached) {
+      throw new NotFoundException(
+        'That file is not attached to this application',
+      );
+    }
+
+    const link = await this.files.downloadUrl(fileId, SITE_CODE);
+
+    await this.eventRepo.save(
+      this.eventRepo.create({
+        applicationId: id,
+        eventType: 'CERTIFICATE_ACCESSED',
+        actor,
+        note: null,
+        metadata: { fileId },
+      }),
+    );
+
+    return link;
+  }
+
+  /**
+   * Replace the CV on an application.
+   *
+   * The form now carries one, so this is no longer how a CV first arrives — it
+   * is for the case where the file is corrupt or the candidate sends a better
+   * one. The old file is left in storage deliberately: the retention purge owns
+   * deletion, and a recruiter who replaced the wrong record should be able to
+   * ask for the previous one back.
+   */
+  async replaceCv(
     id: string,
     file: UploadedFile,
     actor: string,
   ): Promise<CraneApplication> {
     const application = await this.findById(id);
-
-    if (application.cvFileId) {
-      throw new ConflictException(
-        'A CV is already attached. Remove it first if it needs replacing.',
-      );
-    }
 
     const stored = await this.files.upload(file, 'RESUME', null, SITE_CODE);
 
@@ -424,6 +573,24 @@ export class CraneApplicationService {
   // =======================================================================
   // Internals
   // =======================================================================
+
+  /**
+   * Removes objects uploaded for a submission that then failed to save.
+   *
+   * Best effort by design: the caller is already throwing, and a failure to
+   * tidy up must not replace the error that actually explains what went wrong.
+   */
+  private async discard(files: { id: string }[]): Promise<void> {
+    for (const file of files) {
+      try {
+        await this.files.remove(file.id, SITE_CODE);
+      } catch (error) {
+        this.logger.warn(
+          `Orphaned upload ${file.id}: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
 
   /** The one place an admin query is bound to the brand and to live rows. */
   private scoped() {
@@ -516,9 +683,7 @@ export class CraneApplicationService {
         `Thank you for applying${job ? ` for ${job.title}` : ''}.`,
         `Your reference is ${application.referenceNo}.`,
         ``,
-        `Please REPLY TO THIS EMAIL with your CV attached, along with any`,
-        `certifications relevant to the role. We cannot progress an application`,
-        `without them.`,
+        `We have your CV and any certificates you attached.`,
         ``,
         `What happens next:`,
         `  CV screening        within 5 working days`,

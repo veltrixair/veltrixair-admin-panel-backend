@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Post,
+  Put,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
+import { SetAvatarDto } from './dto/set-avatar.dto';
 import { AuthService } from './auth.service';
 import type {
   AuthenticatedProfile,
@@ -122,6 +125,54 @@ export class AuthController {
       admin.siteCode,
       admin.roleCode,
     );
+  }
+
+  /**
+   * Your own display picture.
+   *
+   * No @Permissions: choosing your own photograph is not administering
+   * anybody, and gating it behind the ADMINS feature would mean only the
+   * people who manage accounts could have one.
+   *
+   * Takes a file id rather than the bytes — the upload endpoint already
+   * enforces size, format and signature checks for the PROFILE_PHOTO purpose,
+   * and doing it twice would be two places to keep the rules in step.
+   */
+  @Get('me/avatar-url')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth('jwt')
+  @ApiOperation({ summary: 'A short-lived link to your own profile photo' })
+  @ResponseMessage('Profile photo link issued')
+  avatarUrl(
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<{ url: string | null; expiresInSeconds: number | null }> {
+    return this.authService.avatarUrl(admin.id);
+  }
+
+  @Put('me/avatar')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth('jwt')
+  @ApiOperation({ summary: 'Set your profile photo to an uploaded file' })
+  @ResponseMessage('Profile photo updated')
+  setAvatar(
+    @CurrentUser() admin: AuthenticatedAdmin,
+    @Body() dto: SetAvatarDto,
+  ): Promise<{ avatarFileId: string | null }> {
+    return this.authService.setAvatar(admin.id, dto.fileId);
+  }
+
+  /** Remove it, and delete the stored object with it. */
+  @Delete('me/avatar')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth('jwt')
+  @ApiOperation({ summary: 'Remove your profile photo' })
+  @ResponseMessage('Profile photo removed')
+  clearAvatar(
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<{ avatarFileId: string | null }> {
+    return this.authService.setAvatar(admin.id, null);
   }
 
   @Post('change-password')

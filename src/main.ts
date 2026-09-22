@@ -1,12 +1,33 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { Application } from 'express';
 import { AppModule } from './app.module';
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  /*
+   * Trust the reverse proxy in front of us.
+   *
+   * In production nginx terminates TLS and forwards to this process, so the
+   * socket address Express sees is nginx's, not the visitor's. Without this,
+   * every request appears to come from the same IP — which quietly breaks two
+   * things that both depend on knowing who is calling:
+   *
+   *   - the login throttle (5 per minute) becomes one shared bucket, so a
+   *     handful of people signing in together start getting 429s. It reads
+   *     like an outage rather than a misconfiguration.
+   *   - spam_check's ip_hash records a hash of the proxy, identically for
+   *     everyone, making the signal worthless.
+   *
+   * `1` means trust exactly one hop. Higher values would let a client forge
+   * X-Forwarded-For entries and impersonate another address.
+   */
+  const expressApp = app.getHttpAdapter().getInstance() as Application;
+  expressApp.set('trust proxy', 1);
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -33,6 +54,13 @@ async function bootstrap() {
   app.enableCors({
     origin: corsOrigins,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    /*
+     * A header missing from this list is not rejected with an error — the
+     * browser refuses to send the request at all, and the client sees a
+     * network failure indistinguishable from the server being down. Both
+     * custom headers below are sent by first-party callers and have to be
+     * named here or they fail in exactly that confusing way.
+     */
     allowedHeaders: [
       'Content-Type',
       'Authorization',
@@ -41,6 +69,11 @@ async function bootstrap() {
       'Origin',
       'X-Requested-With',
       'Access-Control-Allow-Headers',
+      // Which brand a public form belongs to. The three public sites send it
+      // on every submission, and they are cross-origin to this API.
+      'X-Site-Code',
+      // The shared key the kNODE product deck sends with every lead.
+      'X-Knode-Key',
     ],
     exposedHeaders: ['Authorization', 'Content-Length', 'Content-Range'],
     credentials: true,

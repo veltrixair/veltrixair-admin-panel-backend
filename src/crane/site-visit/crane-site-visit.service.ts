@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -40,6 +41,8 @@ import { CraneSiteVisitEvent } from './entities/crane-site-visit-event.entity';
 import type { VisitEventType } from './entities/crane-site-visit-event.entity';
 import { CraneSiteVisit } from './entities/crane-site-visit.entity';
 import type { VisitStatus } from './entities/crane-site-visit.entity';
+import { FEATURE } from '../../auth/permissions.constants';
+import { NotificationService } from '../../notifications/notification.service';
 
 /** Veltrixair Industries. Every row this feature writes belongs to it. */
 const SITE_CODE = 102;
@@ -157,6 +160,7 @@ export class CraneSiteVisitService {
     private readonly spamCheck: SpamCheckService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationService,
   ) {}
 
   // =======================================================================
@@ -410,6 +414,30 @@ export class CraneSiteVisitService {
       `Site visit ${visit.referenceNo} requested by ${visit.companyName}`,
     );
 
+    /*
+     * The city is the useful half — a visit request is answered by working out
+     * who is near enough to go. It has to be looked up rather than read off
+     * the record: `siteCity` is a relation, and a freshly saved row carries
+     * only the code, so reading it directly printed "undefined" into the feed.
+     */
+    const city = await this.siteCityRepo.findOne({
+      where: { siteCityCode: visit.siteCityCode },
+      select: { siteCityName: true },
+    });
+
+    await this.notifications.raise({
+      siteCode: SITE_CODE,
+      featureCode: FEATURE.CRANE_SITE_VISITS,
+      category: 'visits',
+      lead: 'Site visit requested',
+      body:
+        `${visit.companyName} · ${visit.contactName}` +
+        (city ? ` · ${city.siteCityName}` : ''),
+      link: `/crane/site-visits/${visit.id}`,
+      sourceType: 'crane_site_visit',
+      sourceId: visit.id,
+    });
+
     return {
       referenceNo: visit.referenceNo,
       manageToken: visit.manageToken,
@@ -557,6 +585,25 @@ export class CraneSiteVisitService {
     if (visit.status === 'CANCELLED') {
       throw new ForbiddenException(
         'This request was cancelled and cannot be reopened',
+      );
+    }
+
+    /*
+     * SCHEDULED is not a status you set. It is what having a date means.
+     *
+     * Allowing it here writes the status and leaves `scheduled_at` null, and
+     * that null is not an internal detail: the customer's tracking page reads
+     * { status, scheduledAt } straight from this row, so they are told their
+     * visit is scheduled and shown no date. They then email to ask when —
+     * which is the exact question that page exists to answer.
+     *
+     * Refused at the service rather than in the DTO so it holds for every
+     * client, not just the admin panel.
+     */
+    if (status === 'SCHEDULED') {
+      throw new BadRequestException(
+        'Confirm the visit date instead — PATCH /admin/crane-site-visits/:id/' +
+          'schedule sets the date and the status together.',
       );
     }
 

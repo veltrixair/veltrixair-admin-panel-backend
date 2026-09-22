@@ -22,6 +22,7 @@ import type { AuthenticatedAdmin } from '../auth/permissions.constants';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { PaginatedResult } from '../common/dto/pagination-query.dto';
 import { CareersService } from './careers.service';
+import type { JobPostingWithApplicants } from './careers.service';
 import { ListJobsAdminDto } from './dto/list-jobs.dto';
 import {
   CreateJobDto,
@@ -52,7 +53,7 @@ export class AdminCareersController {
   list(
     @Query() query: ListJobsAdminDto,
     @CurrentUser() admin: AuthenticatedAdmin,
-  ): Promise<PaginatedResult<JobPosting>> {
+  ): Promise<PaginatedResult<JobPostingWithApplicants>> {
     return this.careersService.listForAdmin(query, admin.siteCode);
   }
 

@@ -35,10 +35,24 @@ export class ListCraneJobsDto extends PaginationQueryDto {
   @IsInt()
   trackCode?: number;
 
+  /** Narrow the list to one department. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  departmentCode?: number;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   locationCode?: number;
+
+  /**
+   * A string, not a boolean, because it arrives in the query string — the
+   * same shape the IT board takes, so the two filters behave alike.
+   */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  hotOnly?: string;
 }
 
 /**
@@ -71,6 +85,18 @@ export class UpsertCraneJobDto {
   @Type(() => Number)
   @IsInt({ message: 'Choose a career track for this role.' })
   trackCode?: number;
+
+  /**
+   * The part of the business that owns the headcount.
+   *
+   * Separate from the track, which is the route a candidate applies through —
+   * a graduate intake is a track and belongs to no one department, so this
+   * stays optional.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'Choose a department for this role.' })
+  departmentCode?: number;
 
   /**
    * The VTX-CRN-xx discipline. Send null for the roles outside the service
@@ -142,6 +168,11 @@ export class UpsertCraneJobDto {
   @Min(1)
   @Max(99)
   openings?: number;
+
+  /** Pins the advert to the top of the board and prints the "Hot" badge. */
+  @IsOptional()
+  @IsBoolean()
+  hotRole?: boolean;
 
   @IsOptional()
   @IsIn(CRANE_JOB_STATUSES)

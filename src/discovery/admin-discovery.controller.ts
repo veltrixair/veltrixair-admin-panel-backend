@@ -22,9 +22,11 @@ import { ResponseMessage } from '../common/decorators/response-message.decorator
 import { PaginatedResult } from '../common/dto/pagination-query.dto';
 import { ArchitectService } from './architect.service';
 import { BookingService } from './booking.service';
+import type { ReassignmentOption } from './booking.service';
 import {
   GenerateSlotsDto,
   ListBookingsDto,
+  ReassignBookingDto,
   UpdateBookingStatusDto,
 } from './dto/list-bookings.dto';
 import {
@@ -92,6 +94,39 @@ export class AdminDiscoveryController {
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<DiscoveryBooking> {
     return this.bookingService.setStatus(id, dto.status, admin.siteCode);
+  }
+
+  @Get('bookings/:id/reassignment-options')
+  @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.VIEW)
+  @ApiOperation({
+    summary: 'Architects free at this session’s hour, for emergency cover',
+  })
+  @ResponseMessage('Options retrieved')
+  reassignmentOptions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<ReassignmentOption[]> {
+    return this.bookingService.reassignmentOptions(id, admin.siteCode);
+  }
+
+  /**
+   * Emergency cover. The hour does not move, only the person.
+   *
+   * Claims the new architect's slot, releases the old one and repoints the
+   * booking at both — `architectId` on a booking is a copy of the slot's, so
+   * writing one without the other would leave the two disagreeing. The
+   * attendee is emailed the new name.
+   */
+  @Patch('bookings/:id/architect')
+  @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.UPDATE)
+  @ApiOperation({ summary: 'Reassign a booked session to another architect' })
+  @ResponseMessage('Architect reassigned')
+  reassign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReassignBookingDto,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<DiscoveryBooking> {
+    return this.bookingService.reassign(id, dto.architectId, admin.siteCode);
   }
 
   /**

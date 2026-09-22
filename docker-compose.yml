@@ -1,0 +1,89 @@
+# =============================================================================
+#  Veltrixair — the whole stack on one server.
+#
+#    postgres   the database
+#    api        this backend
+#    web        nginx: serves the admin panel and forwards /api to the backend
+#    certbot    run by hand, never left running (see the deployment guide)
+#
+#  Only `web` publishes ports. The backend and the database are reachable
+#  solely from this private network, which is why neither needs a firewall
+#  rule — there is no door to the outside at all.
+#
+#  Run every command from this directory:  docker compose <command>
+# =============================================================================
+
+services:
+  # --------------------------------------------------------------- database
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: veltrixair
+      # Read from .env beside this file. Must match DB_PASSWORD in prod.env.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: veltrixair
+
+    volumes:
+      # Left of the colon is a real folder on the server; right of it is where
+      # that folder appears inside the container. This is what makes the data
+      # outlive the container — rebuild as often as you like, the files stay.
+      - /opt/veltrixair/data/postgres:/var/lib/postgresql/data
+      # Dumps land here, so pg_restore can read them from inside.
+      - /opt/veltrixair/backups:/backups
+
+    healthcheck:
+      # `api` waits on this rather than on the container merely existing:
+      # Postgres accepts connections a few seconds after the process starts.
+      test: ['CMD-SHELL', 'pg_isready -U veltrixair -d veltrixair']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    # No `ports`. Deliberate — nothing outside this server reaches the database.
+
+  # ---------------------------------------------------------------- backend
+  api:
+    build: .
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # Secrets arrive at run time. They are not in the image — see .dockerignore.
+    env_file:
+      - ./config/prod.env
+
+    # No `ports` either. Only nginx talks to it, over this network, by name.
+
+  # ------------------------------------------------------ panel + web server
+  web:
+    build:
+      # The admin panel is a separate repository, checked out beside this one.
+      # Docker builds it here, on the server, so both clones must be present.
+      context: ../Veltrixair_AdminPanel_FontendCode
+
+    restart: unless-stopped
+    depends_on: [api]
+
+    ports:
+      - '80:80'
+      - '443:443'
+
+    volumes:
+      # Certificates, read-only: nginx reads them, certbot writes them.
+      - /opt/veltrixair/certs:/etc/letsencrypt:ro
+      # Where Let's Encrypt drops its proof-of-ownership file.
+      - /opt/veltrixair/certbot-webroot:/var/www/certbot:ro
+
+  # ------------------------------------------------ certificates (on demand)
+  # Behind a profile, so `docker compose up` ignores it. Start it by hand:
+  #   docker compose --profile tools run --rm certbot ...
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ['tools']
+    volumes:
+      - /opt/veltrixair/certs:/etc/letsencrypt
+      - /opt/veltrixair/certbot-webroot:/var/www/certbot

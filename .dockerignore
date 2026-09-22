@@ -1,0 +1,41 @@
+# What never goes into the image.
+#
+# Two reasons to keep this tight: a smaller build context uploads faster and
+# caches better, and — the one that matters — anything copied in is readable
+# by anyone who can pull the image.
+
+# Secrets. config/dev.env and config/prod.env hold database passwords, the JWT
+# signing secret and IP_PEPPER. In production these arrive through env_file at
+# run time, never baked in.
+config/*.env
+.env
+.env.*
+
+# Installed and built on the other side of the COPY, for the image's own
+# platform. Copying the host's versions in would at best waste time and at
+# worst ship native modules built for Windows.
+node_modules
+dist
+
+# History and tooling the runtime has no use for.
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Generated documents and their sources.
+docs
+
+# Local file uploads (LOCAL_STORAGE_DIR). Production stores to S3.
+storage
+
+# Test output and logs.
+coverage
+*.log
+npm-debug.log*
+
+# Editor and OS noise.
+*.swp
+.DS_Store
+Thumbs.db

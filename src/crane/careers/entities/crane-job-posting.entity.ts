@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { CraneCareerTrackMaster } from '../../masters/entities/crane-career-track-master.entity';
+import { CraneDepartmentMaster } from '../../masters/entities/crane-department-master.entity';
 import { CraneEmploymentTypeMaster } from '../../masters/entities/crane-employment-type-master.entity';
 import { CraneExperienceBandMaster } from '../../masters/entities/crane-experience-band-master.entity';
 import { CraneJobLocationMaster } from '../../masters/entities/crane-job-location-master.entity';
@@ -62,6 +63,24 @@ export class CraneJobPosting {
     foreignKeyConstraintName: 'vtx_crane_job_postings_track_code_fk',
   })
   track?: CraneCareerTrackMaster;
+
+  /**
+   * The part of the business that owns the headcount.
+   *
+   * Separate from the track, which is the route a candidate applies through.
+   * Nullable: the graduate intake and the speculative pile belong to no single
+   * department, and adverts published before this existed have none.
+   */
+  @Column({ name: 'department_code', type: 'int', nullable: true })
+  departmentCode: number | null;
+
+  @ManyToOne(() => CraneDepartmentMaster, { onDelete: 'RESTRICT' })
+  @JoinColumn({
+    name: 'department_code',
+    referencedColumnName: 'departmentCode',
+    foreignKeyConstraintName: 'vtx_crane_job_postings_department_code_fk',
+  })
+  department?: CraneDepartmentMaster | null;
 
   /**
    * The discipline the advert prints as VTX-CRN-xx.
@@ -156,6 +175,16 @@ export class CraneJobPosting {
 
   @Column({ name: 'openings', type: 'int', default: 1 })
   openings: number;
+
+  /**
+   * Pins the advert to the top of the board and prints the "Hot" badge.
+   *
+   * Presentation only — it changes nothing about who may apply. Indexed
+   * because the default ordering sorts on it.
+   */
+  @Index('idx_crane_job_postings_hot_role')
+  @Column({ name: 'hot_role', type: 'boolean', default: false })
+  hotRole: boolean;
 
   // --- Lifecycle ---------------------------------------------------------
 

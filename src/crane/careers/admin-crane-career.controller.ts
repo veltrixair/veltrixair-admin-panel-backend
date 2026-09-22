@@ -20,6 +20,7 @@ import { FEATURE, PERMISSION, SITE } from '../../auth/permissions.constants';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
 import { PaginatedResult } from '../../common/dto/pagination-query.dto';
 import { CraneCareerService } from './crane-career.service';
+import type { CraneJobPostingWithApplicants } from './crane-career.service';
 import {
   ListCraneJobsDto,
   UpdateCraneJobStatusDto,
@@ -48,7 +49,7 @@ export class AdminCraneCareerController {
   @ResponseMessage('Roles retrieved')
   list(
     @Query() query: ListCraneJobsDto,
-  ): Promise<PaginatedResult<CraneJobPosting>> {
+  ): Promise<PaginatedResult<CraneJobPostingWithApplicants>> {
     return this.careers.listForAdmin(query);
   }
 

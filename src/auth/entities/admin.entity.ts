@@ -25,16 +25,49 @@ export class Admin {
   id: string;
 
   @Index('idx_admins_email')
+  /**
+   * The person this login belongs to.
+   *
+   * NULL only for service accounts — admin@, it.admin@, crane.admin@ and
+   * privacy.admin@ are credentials rather than people and have no HR file.
+   * Everyone else is an employee first and an account holder second.
+   */
+  @Column({ name: 'employee_id', type: 'uuid', nullable: true })
+  employeeId: string | null;
+
+  /**
+   * A display picture the account holder chose for themselves.
+   *
+   * Not the PHOTO slot in `employee_documents` — that one is a passport-size
+   * photograph kept as part of the personnel file, verified by HR and subject
+   * to the document workflow. Replacing an avatar should not be an edit to
+   * somebody's identity documents.
+   *
+   * On the account rather than the employee so the four service super-admins,
+   * which have no HR file, can have one too.
+   */
+  @Column({ name: 'avatar_file_id', type: 'uuid', nullable: true })
+  avatarFileId: string | null;
+
   @Column({ name: 'email', type: 'varchar', length: 255 })
   email: string;
 
+  /**
+   * Null until the account is invited.
+   *
+   * An account is created first and activated second, so between those two
+   * moments it exists with no way to sign in. A null here means exactly that —
+   * created, not yet invited — and login treats it as a plain refusal rather
+   * than handing argon2 an undefined to choke on.
+   */
   @Column({
     name: 'password_hash',
     type: 'varchar',
     length: 255,
+    nullable: true,
     select: false,
   })
-  passwordHash: string;
+  passwordHash: string | null;
 
   @Column({ name: 'full_name', type: 'varchar', length: 150 })
   fullName: string;
@@ -55,6 +88,21 @@ export class Admin {
 
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt: Date | null;
+
+  /** When the invitation went out. Null means it never has. */
+  @Column({ name: 'invited_at', type: 'timestamptz', nullable: true })
+  invitedAt: Date | null;
+
+  /**
+   * Set whenever a password was chosen by somebody else — at invitation, and
+   * again after an admin resets one.
+   *
+   * Enforced in PermissionsGuard rather than the sign-in response, so a
+   * temporary password cannot simply be used against the API directly while
+   * the browser is told to show a change-password screen.
+   */
+  @Column({ name: 'must_change_password', type: 'boolean', default: false })
+  mustChangePassword: boolean;
 
   /** The admin who created this account; null for the bootstrap account. */
   @Column({ name: 'created_by', type: 'uuid', nullable: true })

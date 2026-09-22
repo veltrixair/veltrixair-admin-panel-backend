@@ -10,6 +10,8 @@ import { RegionMaster } from '../master-data/entities/region-master.entity';
 import { toArticleCard, toEstimatedMinutes } from './dto/article-response.dto';
 import type { ArticleCard } from './dto/article-response.dto';
 import { ListArticlesAdminDto, ListArticlesDto } from './dto/list-articles.dto';
+import { FEATURE } from '../auth/permissions.constants';
+import { NotificationService } from '../notifications/notification.service';
 import { CreateArticleDto, UpdateArticleDto } from './dto/upsert-article.dto';
 import { Article } from './entities/article.entity';
 import type { ArticleStatus } from './entities/article.entity';
@@ -21,6 +23,7 @@ export class InsightsService {
     private readonly articleRepo: Repository<Article>,
     @InjectRepository(RegionMaster)
     private readonly regionRepo: Repository<RegionMaster>,
+    private readonly notifications: NotificationService,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -126,19 +129,57 @@ export class InsightsService {
     siteCode: number,
   ): Promise<Article> {
     const article = await this.findById(id, siteCode);
+    /* Captured before the write, which is where the comparison has to happen. */
+    const loadedRegions = article.regions ?? [];
+
+    const patch: Partial<Article> = this.mapScalars(dto, article);
 
     if (dto.slug && dto.slug !== article.slug) {
       await this.assertSlugFree(dto.slug, siteCode, id);
-      article.slug = dto.slug;
+      patch.slug = dto.slug;
     }
-    if (dto.title !== undefined) article.title = dto.title;
+    if (dto.title !== undefined) patch.title = dto.title;
+
+    /*
+     * `update`, not `save` — as `setStatus` already does.
+     *
+     * `findById` loads the article with its regions attached, and `save()`
+     * syncs every loaded relation on the entity it is handed. It cannot diff
+     * this one (see below), so it re-inserts the junction rows and fails,
+     * whether or not the caller asked to change regions at all. `update`
+     * writes columns and never looks at relations.
+     */
+    await this.articleRepo.update({ id }, patch);
+
+    /*
+     * The junction is reconciled by hand rather than through `save()`.
+     *
+     * `article_regions` joins on `region_code`, but RegionMaster's primary key
+     * is a uuid `id`. TypeORM diffs a many-to-many by the related entity's
+     * primary key, so it cannot match the rows it already loaded against the
+     * ones being assigned — it re-inserts every one and violates
+     * vtx_article_regions_pk. Any edit that kept a region the article already
+     * had failed, which was every ordinary edit.
+     *
+     * Computing the difference leaves unchanged regions alone and touches only
+     * what actually moved.
+     */
     if (dto.regionCodes) {
-      article.regions = await this.resolveRegions(dto.regionCodes);
+      const next = await this.resolveRegions(dto.regionCodes);
+      const has = new Set(loadedRegions.map((r) => r.regionCode));
+      const want = new Set(next.map((r) => r.regionCode));
+      const toAdd = next.filter((r) => !has.has(r.regionCode));
+      const toRemove = loadedRegions.filter((r) => !want.has(r.regionCode));
+
+      if (toAdd.length > 0 || toRemove.length > 0) {
+        await this.articleRepo
+          .createQueryBuilder()
+          .relation(Article, 'regions')
+          .of(id)
+          .addAndRemove(toAdd, toRemove);
+      }
     }
 
-    Object.assign(article, this.mapScalars(dto, article));
-
-    await this.articleRepo.save(article);
     return this.findById(id, siteCode);
   }
 
@@ -155,6 +196,28 @@ export class InsightsService {
     }
 
     await this.articleRepo.update({ id }, patch);
+
+    /*
+     * Publishing, and only publishing. A draft is a work in progress and half
+     * of them never ship — announcing every save would make the chip a list of
+     * somebody's afternoon rather than a record of what went live.
+     *
+     * No actor: setStatus does not receive one, and an article going live is
+     * worth telling the whole desk about anyway, its author included.
+     */
+    if (status === 'PUBLISHED' && article.status !== 'PUBLISHED') {
+      await this.notifications.raise({
+        siteCode,
+        featureCode: FEATURE.INSIGHTS,
+        category: 'insights',
+        lead: 'Article published',
+        body: article.title,
+        link: `/insights/${id}/edit`,
+        sourceType: 'article',
+        sourceId: id,
+      });
+    }
+
     return this.findById(id, siteCode);
   }
 
@@ -271,8 +334,13 @@ export class InsightsService {
     siteCode: number,
     excludeId?: string,
   ): Promise<void> {
+    /*
+     * `isDeleted: false` matches the partial unique index. Without it a
+     * removed article would keep reserving its slug, and the article named in
+     * the refusal could not be found anywhere in the panel.
+     */
     const existing = await this.articleRepo.findOne({
-      where: { slug, siteCode },
+      where: { slug, siteCode, isDeleted: false },
     });
     if (existing && existing.id !== excludeId) {
       throw new BadRequestException(
