@@ -466,6 +466,62 @@ export class KnodeDemoService {
   }
 
   /**
+   * Set or clear the notified stamp on one request.
+   *
+   * The counterpart to `markNotified`, which is the workflow: a module ships
+   * and the whole queue it collected is cleared at once. This handles the row
+   * a queue cannot — emailed individually, marked in error, or bounced and
+   * owed another attempt.
+   *
+   * Refused on a DEMO row, which has a status ladder instead. That mirrors
+   * `updateStatus` refusing a notify row: each lifecycle is reachable only
+   * through its own door.
+   */
+  async setNotified(
+    id: string,
+    notified: boolean,
+    note: string | undefined,
+    actor: string | null,
+    siteCode: number,
+  ): Promise<KnodeDemoRequest> {
+    const request = await this.assertExists(id, siteCode);
+
+    if (request.intent !== 'NOTIFY') {
+      throw new BadRequestException(
+        'This is a demo request, not a notify one. Move it along its status ' +
+          'ladder instead.',
+      );
+    }
+
+    /* Already in the asked-for state — nothing to write, and no event either. */
+    if (Boolean(request.notifiedAt) === notified) {
+      return request;
+    }
+
+    await this.requestRepo.update(
+      { id },
+      { notifiedAt: notified ? new Date() : null },
+    );
+
+    await this.eventRepo.save(
+      this.eventRepo.create({
+        requestId: id,
+        eventType: 'NOTIFIED',
+        actor,
+        note: note ?? null,
+        /*
+         * The direction, not a module. A manual change has no single module
+         * behind it — the bulk route records `moduleCode` because a release is
+         * exactly what prompted it, and this is not that.
+         */
+        metadata: { notified, manual: true },
+      }),
+    );
+
+    return this.assertExists(id, siteCode);
+  }
+
+  /**
    * Tell everybody waiting for a module that it has arrived.
    *
    * Bulk and keyed by module, because that is the shape of the job: a release
