@@ -25,6 +25,7 @@ import {
   AddDemoRequestNoteDto,
   AssignDemoRequestDto,
   MarkNotifiedDto,
+  SetNotifiedDto,
   UpdateDemoRequestStatusDto,
 } from './dto/update-demo-request.dto';
 import { KnodeDemoRequestEvent } from './entities/knode-demo-request-event.entity';
@@ -149,6 +150,33 @@ export class AdminKnodeDemoController {
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<MarkNotifiedResult> {
     return this.demoService.markNotified(dto, admin.email, admin.siteCode);
+  }
+
+  /**
+   * The single-row correction beside the bulk route above.
+   *
+   * Both directions, because a stamp applied by mistake — or an address that
+   * bounced — has to be undoable. The bulk route only ever moves rows one way,
+   * which is right for a release and wrong for a correction.
+   */
+  @Patch('demo-requests/:id/notified')
+  @Permissions(FEATURE.KNODE_DEMO, PERMISSION.UPDATE)
+  @ApiOperation({
+    summary: 'Mark one request notified, or put it back — refused on a demo',
+  })
+  @ResponseMessage('Notified state updated')
+  setNotified(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetNotifiedDto,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<KnodeDemoRequest> {
+    return this.demoService.setNotified(
+      id,
+      dto.notified,
+      dto.note,
+      admin.email,
+      admin.siteCode,
+    );
   }
 
   @Patch('demo-requests/:id/assign')

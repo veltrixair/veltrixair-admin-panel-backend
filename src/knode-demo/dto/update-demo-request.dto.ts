@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -62,6 +63,28 @@ export class MarkNotifiedDto {
   @ArrayNotEmpty()
   @IsString({ each: true })
   requestIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
+}
+
+/**
+ * Set or clear the notified stamp on one request.
+ *
+ * The bulk route above is the workflow — a module ships, and the queue it
+ * collected is cleared in one action. This is the correction beside it: one
+ * row, both directions, for the cases a queue cannot express. Somebody was
+ * emailed individually; somebody was marked by mistake; an address bounced and
+ * it has to go back.
+ *
+ * It takes no module code, because a request can name several and none of them
+ * is the reason for a manual change. The event records the direction instead.
+ */
+export class SetNotifiedDto {
+  @IsBoolean()
+  notified: boolean;
 
   @IsOptional()
   @IsString()
