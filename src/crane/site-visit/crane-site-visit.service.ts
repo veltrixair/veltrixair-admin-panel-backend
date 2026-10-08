@@ -40,6 +40,7 @@ import { ListCraneSiteVisitsDto } from './dto/manage-crane-site-visit.dto';
 import { CraneSiteVisitEvent } from './entities/crane-site-visit-event.entity';
 import type { VisitEventType } from './entities/crane-site-visit-event.entity';
 import { CraneSiteVisit } from './entities/crane-site-visit.entity';
+import { CraneEngineerService } from './crane-engineer.service';
 import type { VisitStatus } from './entities/crane-site-visit.entity';
 import { FEATURE } from '../../auth/permissions.constants';
 import { NotificationService } from '../../notifications/notification.service';
@@ -111,6 +112,7 @@ export class CraneSiteVisitService {
   private readonly logger = new Logger(CraneSiteVisitService.name);
 
   constructor(
+    private readonly engineers: CraneEngineerService,
     @InjectRepository(CraneSiteVisit)
     private readonly visitRepo: Repository<CraneSiteVisit>,
     @InjectRepository(CraneSiteVisitEvent)
@@ -634,7 +636,7 @@ export class CraneSiteVisitService {
   async schedule(
     id: string,
     scheduledAt: string,
-    assignedEngineer: string | undefined,
+    engineerId: string | undefined,
     note: string | undefined,
     actor: string | null,
   ): Promise<CraneSiteVisit> {
@@ -645,13 +647,23 @@ export class CraneSiteVisitService {
     }
 
     const when = new Date(scheduledAt);
+    const engineer = engineerId
+      ? await this.engineers.findById(engineerId, visit.siteCode)
+      : null;
 
     await this.visitRepo.update(
       { id },
       {
         scheduledAt: when,
         status: 'SCHEDULED',
-        ...(assignedEngineer ? { assignedEngineer } : {}),
+        ...(engineer
+          ? {
+              assignedEngineerId: engineer.id,
+              // The text column is kept in step, so a visit reads the same
+              // way whether it was assigned before the roster or after.
+              assignedEngineer: engineer.email,
+            }
+          : {}),
         ...(visit.firstRespondedAt ? {} : { firstRespondedAt: new Date() }),
       },
     );
@@ -663,25 +675,40 @@ export class CraneSiteVisitService {
       note ?? `Visit confirmed for ${when.toISOString()}`,
       {
         scheduledAt: when.toISOString(),
-        assignedEngineer: assignedEngineer ?? null,
+        assignedEngineer: engineer?.email ?? null,
+        engineerId: engineer?.id ?? null,
       },
     );
 
     return this.findById(id);
   }
 
+  /**
+   * Give the visit an engineer from the roster.
+   *
+   * Both columns are written: the id is what the panel reads and groups by,
+   * the address is what the column held before the roster existed and what
+   * every other crane desk still stores. Keeping them in step means no screen
+   * has to know which era a visit came from.
+   */
   async assign(
     id: string,
-    assignedEngineer: string,
+    engineerId: string,
     actor: string | null,
   ): Promise<CraneSiteVisit> {
-    await this.requireVisit(id);
-    await this.visitRepo.update({ id }, { assignedEngineer });
+    const visit = await this.requireVisit(id);
+    const engineer = await this.engineers.findById(engineerId, visit.siteCode);
+
+    await this.visitRepo.update(
+      { id },
+      { assignedEngineerId: engineer.id, assignedEngineer: engineer.email },
+    );
     await this.recordEvent(
       id,
       'ASSIGNED',
       actor,
-      `Assigned to ${assignedEngineer}`,
+      `Assigned to ${engineer.fullName} (${engineer.designation})`,
+      { engineerId: engineer.id, email: engineer.email },
     );
     return this.findById(id);
   }

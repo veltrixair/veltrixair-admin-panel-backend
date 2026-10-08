@@ -12,7 +12,6 @@ import {
 } from 'typeorm';
 import { CountryMaster } from '../../master-data/entities/country-master.entity';
 import { EnquiryTimelineMaster } from '../../master-data/entities/enquiry-timeline-master.entity';
-import { EnquiryTopicMaster } from '../../master-data/entities/enquiry-topic-master.entity';
 import { IndustryMaster } from '../../master-data/entities/industry-master.entity';
 import { OfficeMaster } from '../../master-data/entities/office-master.entity';
 
@@ -52,23 +51,11 @@ export class ContactEnquiry {
 
   // --- Form fields -------------------------------------------------------
 
-  @Index('idx_contact_enquiries_topic_code')
-  @Column({ name: 'topic_code', type: 'int' })
-  topicCode: number;
-
-  @ManyToOne(() => EnquiryTopicMaster, { onDelete: 'RESTRICT' })
-  @JoinColumn({
-    name: 'topic_code',
-    referencedColumnName: 'topicCode',
-    foreignKeyConstraintName: 'vtx_contact_enquiries_topic_code_fk',
-  })
-  topic?: EnquiryTopicMaster;
-
   @Column({ name: 'full_name', type: 'varchar', length: 150 })
   fullName: string;
 
-  @Column({ name: 'company', type: 'varchar', length: 150 })
-  company: string;
+  @Column({ name: 'company', type: 'varchar', length: 150, nullable: true })
+  company: string | null;
 
   @Column({ name: 'role_title', type: 'varchar', length: 150, nullable: true })
   roleTitle: string | null;
@@ -124,8 +111,14 @@ export class ContactEnquiry {
   timeline?: EnquiryTimelineMaster;
 
   /** Capped at 1500 characters to match the form's counter. */
-  @Column({ name: 'message', type: 'varchar', length: 1500, select: false })
-  message: string;
+  @Column({
+    name: 'message',
+    type: 'varchar',
+    length: 1500,
+    nullable: true,
+    select: false,
+  })
+  message: string | null;
 
   /**
    * "This enquiry includes confidential information. Please send a mutual NDA

@@ -12,7 +12,7 @@ import {
 } from 'typeorm';
 import { JobPosting } from '../../careers/entities/job-posting.entity';
 import { StoredFile } from '../../files/entities/stored-file.entity';
-import { CountryMaster } from '../../master-data/entities/country-master.entity';
+import { ExperienceBandMaster } from '../../master-data/entities/experience-band-master.entity';
 import { NoticePeriodMaster } from '../../master-data/entities/notice-period-master.entity';
 import { QualificationMaster } from '../../master-data/entities/qualification-master.entity';
 import { WorkAuthorisationMaster } from '../../master-data/entities/work-authorisation-master.entity';
@@ -86,11 +86,16 @@ export class JobApplication {
 
   // --- Identity ----------------------------------------------------------
 
-  @Column({ name: 'first_name', type: 'varchar', length: 100 })
-  firstName: string;
-
-  @Column({ name: 'last_name', type: 'varchar', length: 100 })
-  lastName: string;
+  /**
+   * One field, not a first/last pair, because the form asks one question.
+   *
+   * Splitting a name on whitespace is a guess, and it is wrong often enough to
+   * matter across the regions these postings run in — "Syed Adil Bakshi" has no
+   * reliable split, and neither does a mononym. Storing what the candidate
+   * typed keeps the record accurate; anything that wants a short form can ask.
+   */
+  @Column({ name: 'full_name', type: 'varchar', length: 100 })
+  fullName: string;
 
   @Index('idx_job_applications_email')
   @Column({ name: 'email', type: 'varchar', length: 255 })
@@ -140,7 +145,27 @@ export class JobApplication {
   })
   qualification?: QualificationMaster;
 
-  /** Stored as a number, not a band, so "5+ years" stays filterable. */
+  /** The band the candidate picked. This is the answer of record. */
+  @Column({ name: 'experience_band_code', type: 'int', nullable: true })
+  experienceBandCode: number | null;
+
+  @ManyToOne(() => ExperienceBandMaster, { onDelete: 'RESTRICT' })
+  @JoinColumn({
+    name: 'experience_band_code',
+    referencedColumnName: 'experienceBandCode',
+    foreignKeyConstraintName: 'vtx_job_applications_experience_band_code_fk',
+  })
+  experienceBand?: ExperienceBandMaster;
+
+  /**
+   * The band's lower bound, copied from the master at submission.
+   *
+   * Derived, never asked for: the form offers bands, but the admin list filters
+   * on ">= N years" and a band cannot answer that. Kept as its own column
+   * rather than joined at query time so the filter stays a plain index scan,
+   * and frozen at submission so a later edit to a band's bounds cannot silently
+   * restate what a candidate said.
+   */
   @Column({
     name: 'experience_years',
     type: 'numeric',
@@ -154,7 +179,27 @@ export class JobApplication {
   })
   experienceYears: number | null;
 
-  /** Of the total, how much is in this discipline. */
+  /**
+   * Of the total, how much is in this discipline. The same bands minus
+   * Fresher — see ExperienceBandMaster.availableForRelevant.
+   */
+  @Column({
+    name: 'relevant_experience_band_code',
+    type: 'int',
+    nullable: true,
+  })
+  relevantExperienceBandCode: number | null;
+
+  @ManyToOne(() => ExperienceBandMaster, { onDelete: 'RESTRICT' })
+  @JoinColumn({
+    name: 'relevant_experience_band_code',
+    referencedColumnName: 'experienceBandCode',
+    foreignKeyConstraintName:
+      'vtx_job_applications_relevant_experience_band_code_fk',
+  })
+  relevantExperienceBand?: ExperienceBandMaster;
+
+  /** Derived from the relevant band, for the same reason as above. */
   @Column({
     name: 'relevant_experience_years',
     type: 'numeric',
@@ -196,16 +241,27 @@ export class JobApplication {
   @Column({ name: 'city', type: 'varchar', length: 100, nullable: true })
   city: string | null;
 
-  @Column({ name: 'country_code', type: 'int', nullable: true })
-  countryCode: number | null;
-
-  @ManyToOne(() => CountryMaster, { onDelete: 'RESTRICT' })
-  @JoinColumn({
-    name: 'country_code',
-    referencedColumnName: 'countryCode',
-    foreignKeyConstraintName: 'vtx_job_applications_country_code_fk',
+  /**
+   * Where the candidate lives, as the form asks it — a plain string, not a
+   * code against country_masters.
+   *
+   * That table is a routing table: every row carries an owning office, and a
+   * contact enquiry's SLA clock runs on that office's working week. None of
+   * that applies here. This question only ever said "where are you", nothing
+   * downstream read it, and the join existed solely to print the name back.
+   *
+   * Worth knowing if this becomes a dropdown later: storing ISO 3166-1 alpha-2
+   * instead would survive relabelling ("Turkey" to "Türkiye") and validates
+   * against @IsISO31661Alpha2() with no table at all. A free string is the
+   * right fit only while the field is free text.
+   */
+  @Column({
+    name: 'current_country',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
   })
-  country?: CountryMaster;
+  currentCountry: string | null;
 
   @Column({ name: 'notice_period_code', type: 'int', nullable: true })
   noticePeriodCode: number | null;
@@ -258,6 +314,23 @@ export class JobApplication {
     select: false,
   })
   currentCtc: string | null;
+
+  /**
+   * ISO 4217 for the figure above. The form sends it as a hidden field beside
+   * the amount, so it is stored rather than discarded — "12,00,000" means very
+   * different things in INR and AED, and currentCtc is free text that need not
+   * name its own currency.
+   *
+   * `select: false` for the same reason as the amount: pay is not list data.
+   */
+  @Column({
+    name: 'current_ctc_currency',
+    type: 'varchar',
+    length: 3,
+    nullable: true,
+    select: false,
+  })
+  currentCtcCurrency: string | null;
 
   /** NULL means the question was not asked — not "no". */
   @Column({ name: 'willing_to_relocate', type: 'boolean', nullable: true })

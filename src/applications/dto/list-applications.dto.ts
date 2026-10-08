@@ -22,6 +22,21 @@ export class ListApplicationsDto extends PaginationQueryDto {
   @IsUUID('4', { message: 'jobId must be a valid job id' })
   jobId?: string;
 
+  /**
+   * Which kind of application, where `jobId` names a specific one.
+   *
+   * A GENERAL application is somebody answering "Be A Part Of Our Journey"
+   * rather than a vacancy, and it carries no `job_id` at all. That makes it
+   * unreachable through every role-shaped view in the panel — it belongs to
+   * no posting, so no posting can list it — which is how eight of them sat
+   * unread behind a dashboard that could not count them either.
+   */
+  @IsOptional()
+  @IsIn(['ROLE', 'GENERAL'], {
+    message: 'kind must be either ROLE or GENERAL',
+  })
+  kind?: 'ROLE' | 'GENERAL';
+
   @IsOptional()
   @IsIn(APPLICATION_STATUSES, {
     message: `status must be one of: ${APPLICATION_STATUSES.join(', ')}`,

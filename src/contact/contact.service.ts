@@ -6,6 +6,7 @@ import { PaginatedResult } from '../common/dto/pagination-query.dto';
 import { ReferenceNumberService } from '../common/services/reference-number.service';
 import { SpamCheckService } from '../common/services/spam-check.service';
 import { MailService } from '../mail/mail.service';
+import { MasterDataService } from '../master-data/master-data.service';
 import { CreateEnquiryDto } from './dto/create-enquiry.dto';
 import { ListEnquiriesDto } from './dto/list-enquiries.dto';
 import { ContactEnquiryEvent } from './entities/contact-enquiry-event.entity';
@@ -33,7 +34,6 @@ export interface EnquirySubmissionResult {
 const LIST_COLUMNS = [
   'enquiry.id',
   'enquiry.referenceNo',
-  'enquiry.topicCode',
   'enquiry.fullName',
   'enquiry.company',
   'enquiry.roleTitle',
@@ -67,6 +67,7 @@ export class ContactService {
     private readonly spamCheck: SpamCheckService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly masterData: MasterDataService,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -89,9 +90,24 @@ export class ContactService {
 
     const routing = await this.routing.resolve(
       siteCode,
-      dto.topicCode,
       dto.countryCode,
       submittedAt,
+    );
+
+    /*
+     * Before anything is written, and before routing reads the country.
+     *
+     * A code that names nothing is a bad submission, not a bad enquiry: it
+     * should be refused at the door rather than stored and then shown to
+     * somebody as a bare number they cannot interpret.
+     */
+    await this.masterData.assertContactCodes(
+      {
+        countryCode: dto.countryCode,
+        industryCode: dto.industryCode,
+        timelineCode: dto.timelineCode,
+      },
+      siteCode,
     );
 
     const enquiry = await this.dataSource.transaction(async (manager) => {
@@ -104,16 +120,15 @@ export class ContactService {
       const record = manager.create(ContactEnquiry, {
         referenceNo,
         siteCode,
-        topicCode: dto.topicCode,
         fullName: dto.fullName,
-        company: dto.company,
+        company: dto.company ?? null,
         roleTitle: dto.roleTitle ?? null,
         workEmail: dto.workEmail,
         phone: dto.phone ?? null,
         countryCode: dto.countryCode,
         industryCode: dto.industryCode ?? null,
         timelineCode: dto.timelineCode ?? null,
-        message: dto.message,
+        message: dto.message ?? null,
         requiresNda: dto.requiresNda ?? false,
         consentAt: submittedAt,
         privacyNoticeVersion: this.config.getOrThrow<string>(
@@ -157,7 +172,7 @@ export class ContactService {
     // Mail goes out after commit. The enquiry is already durable; a provider
     // outage must not fail the request.
     if (!spam.isSpam) {
-      await this.sendNotifications(enquiry, routing.office.officeName);
+      await this.sendNotifications(enquiry);
     }
 
     return {
@@ -168,43 +183,20 @@ export class ContactService {
     };
   }
 
-  private async sendNotifications(
-    enquiry: ContactEnquiry,
-    officeName: string,
-  ): Promise<void> {
-    // The submitter ticked "includes confidential information" — the message
-    // body must not travel by email. Link to the admin record instead.
-    const internalBody = enquiry.requiresNda
-      ? [
-          `New enquiry ${enquiry.referenceNo} (NDA REQUESTED)`,
-          ``,
-          `From:    ${enquiry.fullName}, ${enquiry.company}`,
-          `Email:   ${enquiry.workEmail}`,
-          `Office:  ${officeName}`,
-          `Due by:  ${enquiry.slaDueAt.toISOString()}`,
-          ``,
-          `The submitter marked this enquiry confidential and asked for a mutual NDA.`,
-          `The message body is deliberately withheld from this email — open the`,
-          `enquiry in the admin panel to read it. That access is logged.`,
-        ].join('\n')
-      : [
-          `New enquiry ${enquiry.referenceNo}`,
-          ``,
-          `From:    ${enquiry.fullName}, ${enquiry.company}`,
-          `Email:   ${enquiry.workEmail}`,
-          `Office:  ${officeName}`,
-          `Due by:  ${enquiry.slaDueAt.toISOString()}`,
-          ``,
-          enquiry.message,
-        ].join('\n');
-
-    await this.mail.send({
-      to: enquiry.routedToEmail,
-      subject: `[${enquiry.referenceNo}] ${enquiry.company} — new enquiry`,
-      body: internalBody,
-      replyTo: enquiry.workEmail,
-    });
-
+  /**
+   * The acknowledgement to the sender. Nothing goes to the desk by email.
+   *
+   * An enquiry is worked in the admin panel, not in an inbox. The internal
+   * alert used to carry the whole message to the office address, which meant
+   * the record people acted on was a mail rather than the row — two copies of
+   * the same enquiry, only one of which has a status, an owner or a timeline.
+   *
+   * Routing is untouched: country still resolves to an office, `routedToEmail`
+   * and `slaDueAt` are still stored. The field now says which office owns the
+   * enquiry and when a reply is due, rather than where a copy was posted, and
+   * the Overdue filter still runs on that clock.
+   */
+  private async sendNotifications(enquiry: ContactEnquiry): Promise<void> {
     await this.mail.send({
       to: enquiry.workEmail,
       subject: `We've received your enquiry (${enquiry.referenceNo})`,
@@ -220,11 +212,18 @@ export class ContactService {
       ].join('\n'),
     });
 
+    /*
+     * What was actually sent, which is now only the acknowledgement.
+     *
+     * It used to record `routedTo`, naming the office address — a timeline
+     * entry claiming a delivery that no longer happens. The office is still on
+     * the record above; this says what left the building.
+     */
     await this.eventRepo.save(
       this.eventRepo.create({
         enquiryId: enquiry.id,
         eventType: 'NOTIFICATION_SENT',
-        metadata: { routedTo: enquiry.routedToEmail },
+        metadata: { acknowledgedTo: enquiry.workEmail },
       }),
     );
   }
@@ -248,11 +247,6 @@ export class ContactService {
 
     if (query.status) {
       qb.andWhere('enquiry.status = :status', { status: query.status });
-    }
-    if (query.topicCode !== undefined) {
-      qb.andWhere('enquiry.topicCode = :topicCode', {
-        topicCode: query.topicCode,
-      });
     }
     if (query.officeCode !== undefined) {
       qb.andWhere('enquiry.officeCode = :officeCode', {

@@ -45,4 +45,28 @@ export class ReferenceNumberService {
 
     return `${prefix}-${year}-${String(sequenceValue).padStart(padTo, '0')}`;
   }
+
+  /**
+   * The same draw without a year, e.g. `R-902`.
+   *
+   * Job postings have always numbered this way and two live adverts carry
+   * R-900 and R-901. A reference that changes shape partway down a list is
+   * worse than one that is merely short, so the series continues rather than
+   * converting to the dated house format.
+   */
+  async nextShort(
+    prefix: string,
+    sequenceName: string,
+    manager?: EntityManager,
+    padTo = 3,
+  ): Promise<string> {
+    const runner = manager ?? this.entityManager;
+
+    const rows = await runner.query<{ value: string }[]>(
+      'SELECT nextval($1::regclass) AS value',
+      [sequenceName],
+    );
+
+    return `${prefix}-${String(Number(rows[0].value)).padStart(padTo, '0')}`;
+  }
 }

@@ -12,6 +12,7 @@ import { ReferenceNumberService } from '../common/services/reference-number.serv
 import { SpamCheckService } from '../common/services/spam-check.service';
 import { FEATURE } from '../auth/permissions.constants';
 import { NotificationService } from '../notifications/notification.service';
+import { MasterDataService } from '../master-data/master-data.service';
 import { KnodeModuleMaster } from '../master-data/entities/knode-module-master.entity';
 import { CreateDemoRequestDto } from './dto/create-demo-request.dto';
 import { ListDemoRequestsDto } from './dto/list-demo-requests.dto';
@@ -96,6 +97,7 @@ export class KnodeDemoService {
     private readonly config: ConfigService,
     // NotificationsModule is @Global, so this needs no module import.
     private readonly notifications: NotificationService,
+    private readonly masterData: MasterDataService,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -116,9 +118,25 @@ export class KnodeDemoService {
     context: SubmissionContext,
     siteCode: number,
   ): Promise<DemoRequestResult> {
+    /* The five bare codes, before anything is written. Modules are checked
+       just below, where the rows themselves are needed. */
+    await this.masterData.assertKnodeDemoCodes(
+      {
+        facilityTypeCode: dto.facilityTypeCode,
+        bedBandCode: dto.bedBandCode,
+        opdBandCode: dto.opdBandCode,
+        contactRoleCode: dto.contactRoleCode,
+        callWindowCode: dto.callWindowCode,
+      },
+      siteCode,
+    );
+
     const modules = await this.moduleMasterRepo.find({
       where: {
         moduleCode: In(dto.moduleCodes),
+        /* Scoped: the masters are per-brand, so an unscoped lookup would
+           accept another site's module code as if it were ours. */
+        siteCode,
         isActive: true,
         isDeleted: false,
       },

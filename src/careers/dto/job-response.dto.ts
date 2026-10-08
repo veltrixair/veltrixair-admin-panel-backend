@@ -1,6 +1,10 @@
 import { JobPosting } from '../entities/job-posting.entity';
 import type { WorkMode } from '../entities/job-posting.entity';
 import { describeFields } from '../../applications/application-fields.constants';
+import {
+  toDescriptionBlocks,
+  type DescriptionBlock,
+} from '../markdown-blocks.util';
 
 /**
  * Public response shapes for the careers endpoints.
@@ -21,13 +25,15 @@ export interface JobListItem {
   refCode: string;
   slug: string;
   title: string;
+  /** Which careers page this role belongs on. */
+  category: TaxonomyRef | null;
   practice: TaxonomyRef | null;
   locations: TaxonomyRef[];
+  /** Empty when the role shows its city chips alone. */
   locationLabel: string;
   workMode: WorkMode;
   employmentType: string;
   experienceLabel: string;
-  hotRole: boolean;
   postedAt: Date | null;
 }
 
@@ -51,13 +57,19 @@ export interface JobApplyRoute {
 
 export interface JobDetail extends JobListItem {
   /**
-   * The whole advert. Summary, responsibilities and requirements used to be
-   * separate fields; they are sections of this markdown now.
+   * The whole advert, as the typed blocks the careers site renders.
+   *
+   * Summary, responsibilities and requirements used to be separate fields;
+   * they are sections of one markdown document now. It is stored as markdown
+   * — that is what the admin form writes — and converted on the way out, so
+   * the page needs no parser of its own. See markdown-blocks.util.ts.
+   *
+   * Empty rather than null when a posting has no advert yet: the page maps
+   * over this, and an empty list renders nothing without a guard.
    */
-  description: string | null;
+  description: DescriptionBlock[];
   office: JobOffice | null;
   experience: { label: string };
-  visaSponsorship: boolean | null;
   seo: { title: string | null; description: string | null };
   closesAt: Date | null;
   /** How a candidate applies. The site has no form — applications go by email. */
@@ -105,6 +117,13 @@ export function toJobListItem(job: JobPosting): JobListItem {
     refCode: job.refCode,
     slug: job.slug,
     title: job.title,
+    category: job.category
+      ? {
+          code: job.category.categoryCode,
+          name: job.category.categoryName,
+          slug: job.category.slug,
+        }
+      : null,
     practice: job.practice
       ? {
           code: job.practice.practiceCode,
@@ -117,11 +136,10 @@ export function toJobListItem(job: JobPosting): JobListItem {
       name: l.locationName,
       slug: l.slug,
     })),
-    locationLabel: job.locationLabel,
+    locationLabel: job.locationLabel ?? '',
     workMode: job.workMode,
     employmentType: job.employmentType,
     experienceLabel: job.experienceLabel,
-    hotRole: job.hotRole,
     postedAt: job.postedAt,
   };
 }
@@ -132,7 +150,7 @@ export function toJobDetail(job: JobPosting): JobDetail {
 
   return {
     ...toJobListItem(job),
-    description: job.descriptionMdx,
+    description: toDescriptionBlocks(job.descriptionMdx),
     office: job.office
       ? {
           code: job.office.officeCode,
@@ -147,7 +165,6 @@ export function toJobDetail(job: JobPosting): JobDetail {
       : null,
     experience: { label: job.experienceLabel },
     applicationFields: describeFields(job.applicationFields),
-    visaSponsorship: job.visaSponsorship,
     seo: {
       title: job.seoTitle ?? job.title,
       description: job.seoDescription,

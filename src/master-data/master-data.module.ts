@@ -2,17 +2,18 @@ import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ApplicationSourceMaster } from './entities/application-source-master.entity';
 import { CountryMaster } from './entities/country-master.entity';
+import { ExperienceBandMaster } from './entities/experience-band-master.entity';
 import { NoticePeriodMaster } from './entities/notice-period-master.entity';
 import { QualificationMaster } from './entities/qualification-master.entity';
 import { WorkAuthorisationMaster } from './entities/work-authorisation-master.entity';
 import { EnquiryTimelineMaster } from './entities/enquiry-timeline-master.entity';
-import { EnquiryTopicMaster } from './entities/enquiry-topic-master.entity';
 import { Architect } from '../discovery/entities/architect.entity';
 import { ArticleTopicMaster } from './entities/article-topic-master.entity';
 import { DiscoveryPracticeMaster } from './entities/discovery-practice-master.entity';
 import { ArticleTypeMaster } from './entities/article-type-master.entity';
 import { IndustryMaster } from './entities/industry-master.entity';
 import { RegionMaster } from './entities/region-master.entity';
+import { JobCategoryMaster } from './entities/job-category-master.entity';
 import { JobLocationMaster } from './entities/job-location-master.entity';
 import { OfficeMaster } from './entities/office-master.entity';
 import { KnodeBedBandMaster } from './entities/knode-bed-band-master.entity';
@@ -34,9 +35,9 @@ import { MasterDataService } from './master-data.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      EnquiryTopicMaster,
       EnquiryTimelineMaster,
       CountryMaster,
+      ExperienceBandMaster,
       IndustryMaster,
       OfficeMaster,
       PracticeAreaMaster,
@@ -47,6 +48,7 @@ import { MasterDataService } from './master-data.service';
       KnodeContactRoleMaster,
       KnodeCallWindowMaster,
       JobLocationMaster,
+      JobCategoryMaster,
       ArticleTypeMaster,
       ArticleTopicMaster,
       RegionMaster,

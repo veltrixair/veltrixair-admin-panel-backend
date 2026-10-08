@@ -22,23 +22,28 @@ import { ResponseMessage } from '../common/decorators/response-message.decorator
 import { PaginatedResult } from '../common/dto/pagination-query.dto';
 import { ArchitectService } from './architect.service';
 import { BookingService } from './booking.service';
-import type { ReassignmentOption } from './booking.service';
+import type { AssignmentOption } from './booking.service';
 import {
   GenerateSlotsDto,
   ListBookingsDto,
-  ReassignBookingDto,
+  AddBookingNoteDto,
+  AssignBookingDto,
+  RescheduleBookingDto,
+  TakenHoursQueryDto,
   UpdateBookingStatusDto,
 } from './dto/list-bookings.dto';
 import {
-  AssignPracticesDto,
+  AssignIndustriesDto,
   CreateArchitectDto,
   CreateBlackoutDto,
   ReplaceAvailabilityDto,
   UpdateArchitectDto,
 } from './dto/upsert-architect.dto';
+import { ArchitectIndustryMaster } from '../master-data/entities/architect-industry-master.entity';
 import { ArchitectAvailabilityRule } from './entities/architect-availability-rule.entity';
 import { ArchitectBlackout } from './entities/architect-blackout.entity';
 import { Architect } from './entities/architect.entity';
+import { DiscoveryBookingEvent } from './entities/discovery-booking-event.entity';
 import { DiscoveryBooking } from './entities/discovery-booking.entity';
 import { SlotService } from './slot.service';
 
@@ -82,10 +87,19 @@ export class AdminDiscoveryController {
     return this.bookingService.findById(id, admin.siteCode);
   }
 
+  /**
+   * Record the outcome.
+   *
+   * Setting BOOKED on a session with no architect is refused: a session is
+   * confirmed by assigning somebody, not by choosing the word. The 409 carries
+   * a message written for whoever picked it, so the panel can show it as it
+   * stands rather than inventing its own wording.
+   */
   @Patch('bookings/:id/status')
   @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.UPDATE)
   @ApiOperation({
-    summary: 'Update status — cancelling releases the slot back to FREE',
+    summary:
+      'Update the outcome — Booked requires an architect; cancelling releases the slot',
   })
   @ResponseMessage('Status updated')
   setStatus(
@@ -93,40 +107,125 @@ export class AdminDiscoveryController {
     @Body() dto: UpdateBookingStatusDto,
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<DiscoveryBooking> {
-    return this.bookingService.setStatus(id, dto.status, admin.siteCode);
+    return this.bookingService.setStatus(
+      id,
+      dto.status,
+      admin.email,
+      admin.siteCode,
+    );
   }
 
-  @Get('bookings/:id/reassignment-options')
+  @Get('bookings/:id/events')
   @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.VIEW)
-  @ApiOperation({
-    summary: 'Architects free at this session’s hour, for emergency cover',
-  })
-  @ResponseMessage('Options retrieved')
-  reassignmentOptions(
+  @ApiOperation({ summary: 'Timeline for a booking, oldest first' })
+  @ResponseMessage('Events retrieved')
+  listEvents(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() admin: AuthenticatedAdmin,
-  ): Promise<ReassignmentOption[]> {
-    return this.bookingService.reassignmentOptions(id, admin.siteCode);
+  ): Promise<DiscoveryBookingEvent[]> {
+    return this.bookingService.listEvents(id, admin.siteCode);
+  }
+
+  @Post('bookings/:id/notes')
+  @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.UPDATE)
+  @ApiOperation({
+    summary: 'Append an internal note — never sent to the attendee',
+  })
+  @ResponseMessage('Note added')
+  addNote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddBookingNoteDto,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<DiscoveryBookingEvent> {
+    return this.bookingService.addNote(
+      id,
+      dto.note,
+      admin.email,
+      admin.siteCode,
+    );
+  }
+
+  @Get('bookings/:id/assignment-options')
+  @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.VIEW)
+  @ApiOperation({
+    summary: 'Architects this session can be given to, and who is free',
+  })
+  @ResponseMessage('Options retrieved')
+  assignmentOptions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<AssignmentOption[]> {
+    return this.bookingService.assignmentOptions(id, admin.siteCode);
   }
 
   /**
-   * Emergency cover. The hour does not move, only the person.
+   * Give the session an architect.
    *
-   * Claims the new architect's slot, releases the old one and repoints the
-   * booking at both — `architectId` on a booking is a copy of the slot's, so
-   * writing one without the other would leave the two disagreeing. The
-   * attendee is emailed the new name.
+   * The one assignment action, used both for a request that has nobody and for
+   * changing who holds a confirmed session — the only difference between those
+   * was ever whether a previous architect existed, so the panel offers one
+   * button. The hour never moves: the attendee chose it around their own
+   * diary, and if nobody can take it the answer is to talk to them.
    */
-  @Patch('bookings/:id/architect')
+  @Patch('bookings/:id/assign')
   @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.UPDATE)
-  @ApiOperation({ summary: 'Reassign a booked session to another architect' })
-  @ResponseMessage('Architect reassigned')
-  reassign(
+  @ApiOperation({ summary: 'Assign (or change) the architect for a session' })
+  @ResponseMessage('Architect assigned')
+  assign(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: ReassignBookingDto,
+    @Body() dto: AssignBookingDto,
     @CurrentUser() admin: AuthenticatedAdmin,
   ): Promise<DiscoveryBooking> {
-    return this.bookingService.reassign(id, dto.architectId, admin.siteCode);
+    return this.bookingService.assign(
+      id,
+      dto.architectId,
+      admin.email,
+      admin.siteCode,
+    );
+  }
+
+  /**
+   * Which hours on a day are already spoken for.
+   *
+   * The same answer the website's calendar gets, on the admin side so the
+   * reschedule picker can grey out the hours that would be refused. Without
+   * it the desk picks blind and learns the hour was taken from a 409.
+   *
+   * The session's own hour counts as taken, which is correct: a reschedule to
+   * the time it already has is not a move.
+   */
+  @Get('taken-hours')
+  @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.VIEW)
+  @ApiOperation({ summary: 'Hours already booked on a date (India time)' })
+  @ResponseMessage('Taken hours retrieved')
+  takenHours(
+    @Query() query: TakenHoursQueryDto,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<{ date: string; taken: string[] }> {
+    return this.bookingService.takenHours(query.date, admin.siteCode);
+  }
+
+  /**
+   * Move a session to another hour.
+   *
+   * Its own endpoint rather than a field on assign: reassigning an architect
+   * is routine and rescheduling rearranges somebody else's day, so they are
+   * kept apart deliberately. The attendee is emailed both hours every time.
+   *
+   * The new time passes the same checks the public form does — on the hour,
+   * inside the session window, not in the past, and not an hour somebody else
+   * already holds.
+   */
+  @Patch('bookings/:id/reschedule')
+  @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.UPDATE)
+  @ApiOperation({ summary: 'Move a session to another date and time' })
+  @ResponseMessage('Session rescheduled')
+  reschedule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RescheduleBookingDto,
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<DiscoveryBooking> {
+    return this.bookingService.reschedule(id, dto, admin.email, admin.siteCode);
   }
 
   /**
@@ -147,6 +246,23 @@ export class AdminDiscoveryController {
   // -----------------------------------------------------------------------
   // Architects
   // -----------------------------------------------------------------------
+
+  /**
+   * The industry dropdown for the architect form.
+   *
+   * Served rather than hardcoded in the panel, for the reason the careers
+   * forms learned the hard way: a list kept in two places drifts, and the copy
+   * nobody is looking at is the one that goes stale.
+   */
+  @Get('architect-industries')
+  @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.VIEW)
+  @ApiOperation({ summary: 'Industry options for the architect form' })
+  @ResponseMessage('Industries retrieved')
+  architectIndustries(
+    @CurrentUser() admin: AuthenticatedAdmin,
+  ): Promise<ArchitectIndustryMaster[]> {
+    return this.architectService.listIndustries(admin.siteCode);
+  }
 
   @Get('architects')
   @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.VIEW)
@@ -199,21 +315,24 @@ export class AdminDiscoveryController {
   }
 
   /**
-   * Replace the practices an architect covers. Slots belong to the architect,
-   * so their whole calendar follows the assignment — no regeneration needed.
+   * Replace the industries an architect covers.
+   *
+   * Separate from the general update so the panel can offer it on its own,
+   * and because it is the one field that is a set rather than a value — sent
+   * whole, never patched item by item.
    */
-  @Put('architects/:id/practices')
+  @Put('architects/:id/industries')
   @Permissions(FEATURE.IT_DISCOVERY, PERMISSION.UPDATE)
   @ApiOperation({
-    summary: 'Assign the practices an architect covers (one or more)',
+    summary: 'Assign the industries an architect covers (one or more)',
   })
-  @ResponseMessage('Practices assigned')
-  assignPractices(
+  @ResponseMessage('Industries assigned')
+  assignIndustries(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: AssignPracticesDto,
+    @Body() dto: AssignIndustriesDto,
     @CurrentUser() admin: AuthenticatedAdmin,
   ) {
-    return this.architectService.assignPractices(id, dto, admin.siteCode);
+    return this.architectService.assignIndustries(id, dto, admin.siteCode);
   }
 
   @Delete('architects/:id')

@@ -94,6 +94,51 @@ export class PublicApplicationsController {
     );
   }
 
+  /**
+   * A general application — "Be A Part Of Our Journey", not a vacancy.
+   *
+   * Same body, same résumé rules, same throttle as applying for a role; the
+   * only difference is that no posting is named, so the row is stored with a
+   * null `job_id` and the recruiters read it as a talent-pool entry. Forcing
+   * such a candidate to pick a listing instead would file a platform engineer
+   * under whichever advert they guessed at, and lose the ones who match none.
+   *
+   * A posting cannot switch questions on or off here, because there is no
+   * posting — the defaults apply, which is what the website's form draws.
+   */
+  @Post('apply')
+  @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
+  @UseInterceptors(
+    FileInterceptor('resume', { limits: { fileSize: MAX_RESUME_BYTES } }),
+  )
+  @UseFilters(MulterExceptionFilter)
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary:
+      'General application, no role — multipart, résumé in the "resume" field',
+  })
+  @ResponseMessage('Application received')
+  applyGeneral(
+    @UploadedFile() resume: MulterFile | undefined,
+    @Body() dto: CreateApplicationDto,
+    @Req() request: Request,
+    @CurrentSite() siteCode: number,
+  ): Promise<ApplicationResult> {
+    if (!resume) {
+      throw new BadRequestException(
+        'Please attach your résumé in the "resume" field (PDF, DOC or DOCX).',
+      );
+    }
+
+    return this.applications.submit(
+      null,
+      dto,
+      resume,
+      { ip: request.ip, userAgent: request.get('user-agent') },
+      siteCode,
+    );
+  }
+
   @Get('applications/:manageToken')
   @ApiOperation({ summary: 'Check an application — no account needed' })
   @ResponseMessage('Application retrieved')

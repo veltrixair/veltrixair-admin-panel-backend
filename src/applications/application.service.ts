@@ -10,11 +10,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
-import { DataSource, In, Not, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { JobPosting } from '../careers/entities/job-posting.entity';
 import { PaginatedResult } from '../common/dto/pagination-query.dto';
 import { ReferenceNumberService } from '../common/services/reference-number.service';
 import { SpamCheckService } from '../common/services/spam-check.service';
+import { joinPhone } from '../common/utils/phone.util';
 import { FilesService } from '../files/files.service';
 import type { UploadedFile } from '../files/files.service';
 import { FEATURE } from '../auth/permissions.constants';
@@ -37,12 +38,14 @@ import {
 } from './application-fields.constants';
 
 const REFERENCE_PREFIX = 'VLX-APP';
+
 const REFERENCE_SEQUENCE = 'job_application_ref_seq';
 
 export interface ApplicationResult {
   referenceNo: string;
   manageToken: string;
-  jobTitle: string;
+  /** Null on a general application — there is no role to name. */
+  jobTitle: string | null;
   message: string;
 }
 
@@ -68,9 +71,11 @@ export class ApplicationService {
    */
   private assertMatchesFieldConfig(
     dto: CreateApplicationDto,
-    job: JobPosting,
+    job: JobPosting | null,
   ): void {
-    const fields = resolveFields(job.applicationFields);
+    // A general application has no posting to read, so it is held to the
+    // defaults — which are what the website's form draws anyway.
+    const fields = resolveFields(job?.applicationFields ?? null);
     const problems: string[] = [];
 
     for (const key of APPLICATION_FIELD_KEYS) {
@@ -128,24 +133,38 @@ export class ApplicationService {
    * transaction, and a failure after it triggers a compensating delete.
    */
   async submit(
-    slug: string,
+    slug: string | null,
     dto: CreateApplicationDto,
     resume: UploadedFile,
     context: { ip?: string; userAgent?: string },
     siteCode: number,
   ): Promise<ApplicationResult> {
-    // 1. The job must exist and still be taking applications.
-    const job = await this.jobRepo.findOne({
-      where: { slug, isDeleted: false, siteCode },
-    });
+    /*
+     * 1. The job, when there is one.
+     *
+     * A null slug is a general application — somebody answering "Be A Part Of
+     * Our Journey" rather than a vacancy. The rest of this method is identical
+     * either way, which is why it branches here instead of being copied: the
+     * résumé policy, the spam scoring, the retention clock and the compensating
+     * delete are the parts worth not having two versions of.
+     */
+    const job = slug
+      ? await this.jobRepo.findOne({
+          where: { slug, isDeleted: false, siteCode },
+        })
+      : null;
 
-    if (!job) throw new NotFoundException(`No role found for "${slug}"`);
+    if (slug) {
+      if (!job) throw new NotFoundException(`No role found for "${slug}"`);
 
-    if (job.status !== 'OPEN') {
-      throw new GoneException('This role is no longer accepting applications');
-    }
-    if (job.closesAt && job.closesAt.getTime() <= Date.now()) {
-      throw new GoneException('Applications for this role have closed');
+      if (job.status !== 'OPEN') {
+        throw new GoneException(
+          'This role is no longer accepting applications',
+        );
+      }
+      if (job.closesAt && job.closesAt.getTime() <= Date.now()) {
+        throw new GoneException('Applications for this role have closed');
+      }
     }
 
     // 2. What this role actually asks. A question the recruiter switched
@@ -160,7 +179,13 @@ export class ApplicationService {
       noticePeriodCode: dto.noticePeriodCode ?? null,
       workAuthorisationCode: dto.workAuthorisationCode ?? null,
       sourceCode: dto.sourceCode ?? null,
-      countryCode: dto.countryCode ?? null,
+    });
+
+    // Bands are validated separately because this lookup returns something:
+    // the years figure the admin list filters on, read off the chosen band.
+    const experience = await this.masterData.resolveExperienceBands({
+      experienceBandCode: dto.experienceBandCode ?? null,
+      relevantExperienceBandCode: dto.relevantExperienceBandCode ?? null,
     });
 
     // A salary without a currency is meaningless across three markets.
@@ -170,11 +195,18 @@ export class ApplicationService {
       );
     }
 
-    // 3. One live application per person per role.
+    /*
+     * 3. One live application per person per role — and one live general
+     *    application per person per site.
+     *
+     * `IsNull()` rather than `jobId: null`: in SQL `NULL = NULL` is never true,
+     * so matching on the value would find nothing and the guard would silently
+     * stop existing for exactly the path that has no posting to key on.
+     */
     const existing = await this.applicationRepo.findOne({
       where: {
         email: dto.email.trim().toLowerCase(),
-        jobId: job.id,
+        jobId: job ? job.id : IsNull(),
         siteCode,
         isDeleted: false,
         status: Not(In(CLOSED_STATUSES)),
@@ -184,7 +216,10 @@ export class ApplicationService {
 
     if (existing) {
       throw new ConflictException(
-        `You already have an application in progress for this role (${existing.referenceNo}).`,
+        job
+          ? `You already have an application in progress for this role (${existing.referenceNo}).`
+          : `You already have a general application with us (${existing.referenceNo}). ` +
+              'Use the link in your confirmation email to check or withdraw it.',
       );
     }
 
@@ -198,12 +233,7 @@ export class ApplicationService {
 
     // 5. Only now does anything leave the process. FilesService applies the
     //    RESUME policy: 5 MB, pdf/doc/docx by magic bytes, 12-month retention.
-    const stored = await this.files.upload(
-      resume,
-      'RESUME',
-      null,
-      job.siteCode,
-    );
+    const stored = await this.files.upload(resume, 'RESUME', null, siteCode);
 
     try {
       const application = await this.dataSource.transaction(async (manager) => {
@@ -216,26 +246,28 @@ export class ApplicationService {
         const saved = await manager.save(
           manager.create(JobApplication, {
             referenceNo,
-            jobId: job.id,
-            siteCode: job.siteCode,
-            firstName: dto.firstName.trim(),
-            lastName: dto.lastName.trim(),
+            jobId: job?.id ?? null,
+            siteCode,
+            fullName: dto.fullName.trim(),
             email: dto.email.trim().toLowerCase(),
-            phone: dto.phone?.trim() ?? null,
+            phone: joinPhone(dto.phoneCode, dto.phone),
             currentTitle: dto.currentTitle?.trim() ?? null,
             currentCompany: dto.currentCompany?.trim() ?? null,
             qualificationCode: dto.qualificationCode ?? null,
-            experienceYears: dto.experienceYears ?? null,
-            relevantExperienceYears: dto.relevantExperienceYears ?? null,
+            experienceBandCode: dto.experienceBandCode ?? null,
+            relevantExperienceBandCode: dto.relevantExperienceBandCode ?? null,
+            experienceYears: experience.experienceYears,
+            relevantExperienceYears: experience.relevantExperienceYears,
             keySkills: dto.keySkills?.length ? dto.keySkills : null,
             linkedinUrl: dto.linkedinUrl ?? null,
             portfolioUrl: dto.portfolioUrl ?? null,
             city: dto.city?.trim() ?? null,
-            countryCode: dto.countryCode ?? null,
+            currentCountry: dto.currentCountry ?? null,
             noticePeriodCode: dto.noticePeriodCode ?? null,
             workAuthorisationCode: dto.workAuthorisationCode ?? null,
             willingToRelocate: dto.willingToRelocate ?? null,
             currentCtc: dto.currentCtc?.trim() ?? null,
+            currentCtcCurrency: dto.currentCtcCurrency ?? null,
             expectedSalary: dto.expectedSalary ?? null,
             salaryCurrency: dto.salaryCurrency ?? null,
             resumeFileId: stored.id,
@@ -259,7 +291,9 @@ export class ApplicationService {
             applicationId: saved.id,
             eventType: 'CREATED',
             actor: null,
-            note: `Applied for ${job.title}`,
+            note: job
+              ? `Applied for ${job.title}`
+              : 'General application — no specific role',
             metadata: {
               spamScore: spam.score,
               spamReasons: spam.reasons,
@@ -271,7 +305,7 @@ export class ApplicationService {
         return saved;
       });
 
-      await this.sendConfirmation(application, job.title);
+      await this.sendConfirmation(application, job?.title ?? null);
 
       /*
        * IT_APPLICATIONS, not IT_CAREERS: publishing a vacancy and reading who
@@ -283,23 +317,26 @@ export class ApplicationService {
         siteCode,
         featureCode: FEATURE.IT_APPLICATIONS,
         category: 'jobs',
-        lead: 'Job application',
-        body: `${application.firstName} ${application.lastName} applied for ${job.title}`,
+        lead: job ? 'Job application' : 'General application',
+        body: job
+          ? `${application.fullName} applied for ${job.title}`
+          : `${application.fullName} applied speculatively`,
         link: `/candidates/${application.id}`,
         sourceType: 'job_application',
         sourceId: application.id,
       });
 
       this.logger.log(
-        `Application ${application.referenceNo} for "${job.title}" (spam score ${spam.score})`,
+        `Application ${application.referenceNo} for "${job?.title ?? 'general'}" (spam score ${spam.score})`,
       );
 
       return {
         referenceNo: application.referenceNo,
         manageToken: application.manageToken,
-        jobTitle: job.title,
-        message:
-          'Thank you. Your application has been received — we review every one and will be in touch.',
+        jobTitle: job?.title ?? null,
+        message: job
+          ? 'Thank you. Your application has been received — we review every one and will be in touch.'
+          : 'Thank you. Your profile is with our talent team — we will be in touch when something fits.',
       };
     } catch (error) {
       // The row failed but the object is already in Supabase. Remove it, or it
@@ -420,14 +457,17 @@ export class ApplicationService {
       .leftJoinAndSelect('application.qualification', 'qualification')
       .leftJoinAndSelect('application.noticePeriod', 'noticePeriod')
       .leftJoinAndSelect('application.workAuthorisation', 'workAuthorisation')
-      .leftJoinAndSelect('application.country', 'country')
+      .leftJoinAndSelect('application.experienceBand', 'experienceBand')
+      .leftJoinAndSelect(
+        'application.relevantExperienceBand',
+        'relevantExperienceBand',
+      )
       .where('application.isDeleted = false')
       .andWhere('application.siteCode = :siteCode', { siteCode });
 
     if (query.search) {
       qb.andWhere(
-        `(application.firstName ILIKE :search
-          OR application.lastName ILIKE :search
+        `(application.fullName ILIKE :search
           OR application.email ILIKE :search
           OR application.referenceNo ILIKE :search)`,
         { search: `%${query.search}%` },
@@ -435,6 +475,14 @@ export class ApplicationService {
     }
     if (query.jobId) {
       qb.andWhere('application.jobId = :jobId', { jobId: query.jobId });
+    }
+    if (query.kind) {
+      /* IS NULL rather than a flag column: the absence of a job IS the fact. */
+      qb.andWhere(
+        query.kind === 'GENERAL'
+          ? 'application.jobId IS NULL'
+          : 'application.jobId IS NOT NULL',
+      );
     }
     if (query.status) {
       qb.andWhere('application.status = :status', { status: query.status });
@@ -479,13 +527,22 @@ export class ApplicationService {
       .leftJoinAndSelect('application.qualification', 'qualification')
       .leftJoinAndSelect('application.noticePeriod', 'noticePeriod')
       .leftJoinAndSelect('application.workAuthorisation', 'workAuthorisation')
-      .leftJoinAndSelect('application.country', 'country')
+      .leftJoinAndSelect('application.experienceBand', 'experienceBand')
+      .leftJoinAndSelect(
+        'application.relevantExperienceBand',
+        'relevantExperienceBand',
+      )
       .leftJoinAndSelect('application.resumeFile', 'resumeFile')
       .addSelect([
         'application.phone',
         'application.coverNote',
         'application.expectedSalary',
         'application.salaryCurrency',
+        // Withheld from the list for the same reason as the rest of this
+        // block, and released here. The currency is useless without the
+        // amount and the amount misleading without the currency, so both.
+        'application.currentCtc',
+        'application.currentCtcCurrency',
       ])
       .where('application.id = :id', { id })
       .andWhere('application.isDeleted = false')
@@ -640,17 +697,23 @@ export class ApplicationService {
 
   private async sendConfirmation(
     application: JobApplication,
-    jobTitle: string,
+    jobTitle: string | null,
   ): Promise<void> {
     await this.mail.send({
       to: application.email,
       subject: `We've received your application — ${application.referenceNo}`,
       body: [
-        `Hello ${application.firstName},`,
+        `Hello ${application.fullName},`,
         ``,
-        `Thank you for applying for ${jobTitle}. Your reference is ${application.referenceNo}.`,
+        // A general applicant did not apply "for" anything, and saying they
+        // did is the sort of small wrongness that reads as a mail merge.
+        jobTitle
+          ? `Thank you for applying for ${jobTitle}. Your reference is ${application.referenceNo}.`
+          : `Thank you for your interest in joining Veltrixair. Your profile is now with our talent team, and your reference is ${application.referenceNo}.`,
         ``,
-        `We read every application. If your experience matches what the team needs, we will be in touch to arrange a first conversation.`,
+        jobTitle
+          ? `We read every application. If your experience matches what the team needs, we will be in touch to arrange a first conversation.`
+          : `We read every application. We will be in touch when a role comes up that fits what you do.`,
         ``,
         `Check the status or withdraw your application at any time:`,
         `/careers/applications/${application.manageToken}`,

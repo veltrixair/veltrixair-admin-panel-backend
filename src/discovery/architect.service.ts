@@ -6,10 +6,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThan, Repository } from 'typeorm';
-import { DiscoveryPracticeMaster } from '../master-data/entities/discovery-practice-master.entity';
-import { OfficeMaster } from '../master-data/entities/office-master.entity';
+import { ArchitectIndustryMaster } from '../master-data/entities/architect-industry-master.entity';
 import {
-  AssignPracticesDto,
+  AssignIndustriesDto,
   CreateArchitectDto,
   CreateBlackoutDto,
   ReplaceAvailabilityDto,
@@ -41,10 +40,8 @@ export class ArchitectService {
     private readonly slotRepo: Repository<SessionSlot>,
     @InjectRepository(DiscoveryBooking)
     private readonly bookingRepo: Repository<DiscoveryBooking>,
-    @InjectRepository(DiscoveryPracticeMaster)
-    private readonly practiceRepo: Repository<DiscoveryPracticeMaster>,
-    @InjectRepository(OfficeMaster)
-    private readonly officeRepo: Repository<OfficeMaster>,
+    @InjectRepository(ArchitectIndustryMaster)
+    private readonly industryRepo: Repository<ArchitectIndustryMaster>,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -56,7 +53,7 @@ export class ArchitectService {
       where: includeInactive
         ? { isDeleted: false, siteCode }
         : { isDeleted: false, isActive: true, siteCode },
-      relations: { practices: true, office: true },
+      relations: { industries: true },
       order: { createdDate: 'ASC' },
     });
   }
@@ -68,34 +65,38 @@ export class ArchitectService {
   async findById(id: string, siteCode: number): Promise<Architect> {
     const architect = await this.architectRepo.findOne({
       where: { id, isDeleted: false, siteCode },
-      relations: { practices: true, office: true },
+      relations: { industries: true },
     });
     if (!architect) throw new NotFoundException(`Architect ${id} not found`);
     return architect;
   }
 
+  /**
+   * Add an architect.
+   *
+   * The email is checked for a clash across the site rather than left to the
+   * database, because two rows for one person is the mistake that actually
+   * happens here — somebody is added twice under slightly different spellings
+   * of their name, and the desk then assigns sessions to whichever copy comes
+   * up first. The address is the one thing about a colleague that is reliably
+   * unique, so it is what the check uses.
+   */
   async create(dto: CreateArchitectDto, siteCode: number): Promise<Architect> {
-    const practices = await this.resolvePractices(dto.practiceCodes);
-    await this.assertOfficeExists(dto.officeCode);
-
-    const existing = await this.architectRepo.findOne({
-      where: { slug: dto.slug, siteCode },
-    });
-    if (existing) {
-      throw new BadRequestException(
-        `An architect with slug "${dto.slug}" already exists`,
-      );
-    }
+    const industries = await this.resolveIndustries(
+      dto.industryCodes,
+      siteCode,
+    );
+    await this.assertEmailIsFree(dto.email, siteCode);
 
     const saved = await this.architectRepo.save(
       this.architectRepo.create({
         siteCode,
-        slug: dto.slug,
-        fullName: dto.fullName ?? null,
-        displayTitle: dto.displayTitle,
-        credentials: dto.credentials ?? null,
-        practices,
-        officeCode: dto.officeCode,
+        fullName: dto.fullName,
+        designation: dto.designation,
+        email: dto.email.trim(),
+        phone: dto.phone.trim(),
+        experienceYears: dto.experienceYears,
+        industries,
         isActive: dto.isActive ?? true,
       }),
     );
@@ -109,40 +110,33 @@ export class ArchitectService {
   ): Promise<Architect> {
     const architect = await this.findById(id, siteCode);
 
-    if (dto.officeCode !== undefined) {
-      await this.assertOfficeExists(dto.officeCode);
-    }
-    if (dto.slug && dto.slug !== architect.slug) {
-      const clash = await this.architectRepo.findOne({
-        where: { slug: dto.slug },
-      });
-      if (clash && clash.id !== id) {
-        throw new BadRequestException(
-          `An architect with slug "${dto.slug}" already exists`,
-        );
-      }
+    if (dto.email !== undefined && dto.email.trim() !== architect.email) {
+      await this.assertEmailIsFree(dto.email, siteCode, id);
     }
 
     await this.architectRepo.update(
       { id },
       {
-        ...(dto.slug !== undefined && { slug: dto.slug }),
         ...(dto.fullName !== undefined && { fullName: dto.fullName }),
-        ...(dto.displayTitle !== undefined && {
-          displayTitle: dto.displayTitle,
+        ...(dto.designation !== undefined && { designation: dto.designation }),
+        ...(dto.email !== undefined && { email: dto.email.trim() }),
+        ...(dto.phone !== undefined && { phone: dto.phone.trim() }),
+        ...(dto.experienceYears !== undefined && {
+          experienceYears: dto.experienceYears,
         }),
-        ...(dto.credentials !== undefined && { credentials: dto.credentials }),
-        ...(dto.officeCode !== undefined && { officeCode: dto.officeCode }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       },
     );
 
     // The join table is a relation, so it is written separately from the columns.
-    if (dto.practiceCodes) {
-      const practices = await this.resolvePractices(dto.practiceCodes);
-      await this.setPracticeRows(
+    if (dto.industryCodes) {
+      const industries = await this.resolveIndustries(
+        dto.industryCodes,
+        siteCode,
+      );
+      await this.setIndustryRows(
         id,
-        practices.map((p) => p.practiceCode),
+        industries.map((i) => i.industryCode),
       );
     }
 
@@ -150,60 +144,41 @@ export class ArchitectService {
   }
 
   /**
-   * Replace the set of practices an architect covers.
+   * Replace the set of industries an architect covers.
    *
-   * Slots belong to the architect rather than the practice, so their whole
-   * calendar follows the assignment — practices dropped from the set lose that
-   * availability, practices added gain it, and no slot is rewritten. Existing
-   * bookings are unaffected: they reference the architect, and the attendee
-   * still meets the same person.
+   * Nothing else moves. Industries describe what somebody knows, not what they
+   * are booked for — existing sessions reference the architect, and the
+   * attendee still meets the same person whatever the list says afterwards.
    */
-  async assignPractices(
+  async assignIndustries(
     id: string,
-    dto: AssignPracticesDto,
+    dto: AssignIndustriesDto,
     siteCode: number,
   ): Promise<{
     architect: Architect;
     added: number[];
     removed: number[];
-    affectedSlots: number;
-    upcomingBookings: number;
   }> {
     const architect = await this.findById(id, siteCode);
-    const practices = await this.resolvePractices(dto.practiceCodes);
+    const industries = await this.resolveIndustries(
+      dto.industryCodes,
+      siteCode,
+    );
 
-    const before = (architect.practices ?? []).map((p) => p.practiceCode);
-    const after = practices.map((p) => p.practiceCode);
+    const before = (architect.industries ?? []).map((i) => i.industryCode);
+    const after = industries.map((i) => i.industryCode);
     const added = after.filter((c) => !before.includes(c));
     const removed = before.filter((c) => !after.includes(c));
 
     if (added.length === 0 && removed.length === 0) {
       throw new BadRequestException(
-        'That architect already covers exactly these practices',
+        'That architect already covers exactly these industries',
       );
     }
 
-    const now = new Date();
-    const affectedSlots = await this.slotRepo.count({
-      where: { architectId: id, startsAt: MoreThan(now) },
-    });
-    const upcomingBookings = await this.bookingRepo
-      .createQueryBuilder('booking')
-      .innerJoin('booking.slot', 'slot')
-      .where('booking.architectId = :id', { id })
-      .andWhere('booking.status = :status', { status: 'BOOKED' })
-      .andWhere('slot.startsAt > now()')
-      .getCount();
+    await this.setIndustryRows(id, after);
 
-    await this.setPracticeRows(id, after);
-
-    return {
-      architect: await this.findById(id, siteCode),
-      added,
-      removed,
-      affectedSlots,
-      upcomingBookings,
-    };
+    return { architect: await this.findById(id, siteCode), added, removed };
   }
 
   /**
@@ -213,20 +188,20 @@ export class ArchitectService {
    * re-inserts the whole set instead of diffing it, which collides with the
    * composite primary key on rows that already exist.
    */
-  private async setPracticeRows(
+  private async setIndustryRows(
     architectId: string,
-    practiceCodes: number[],
+    industryCodes: number[],
   ): Promise<void> {
     await this.architectRepo.manager.transaction(async (manager) => {
       await manager.query(
-        'DELETE FROM architect_practices WHERE architect_id = $1',
+        'DELETE FROM architect_industries WHERE architect_id = $1',
         [architectId],
       );
-      if (practiceCodes.length > 0) {
+      if (industryCodes.length > 0) {
         await manager.query(
-          `INSERT INTO architect_practices (architect_id, practice_code)
+          `INSERT INTO architect_industries (architect_id, industry_code)
            SELECT $1, unnest($2::int[])`,
-          [architectId, practiceCodes],
+          [architectId, industryCodes],
         );
       }
     });
@@ -500,31 +475,71 @@ export class ArchitectService {
     return qb.getRawMany<BlackoutConflict>();
   }
 
-  /** Resolves codes to rows, rejecting the whole set if any is unknown. */
-  private async resolvePractices(
-    codes: number[],
-  ): Promise<DiscoveryPracticeMaster[]> {
-    const unique = [...new Set(codes)];
-    const practices = await this.practiceRepo.find({
-      where: { practiceCode: In(unique), isActive: true, isDeleted: false },
+  /** The industry dropdown, in display order. */
+  listIndustries(siteCode: number): Promise<ArchitectIndustryMaster[]> {
+    return this.industryRepo.find({
+      where: { siteCode, isActive: true, isDeleted: false },
+      order: { displayOrder: 'ASC' },
     });
-
-    if (practices.length !== unique.length) {
-      const found = practices.map((p) => p.practiceCode);
-      const missing = unique.filter((c) => !found.includes(c));
-      throw new BadRequestException(
-        `Unknown practice code(s): ${missing.join(', ')}`,
-      );
-    }
-    return practices;
   }
 
-  private async assertOfficeExists(officeCode: number): Promise<void> {
-    const office = await this.officeRepo.findOne({
-      where: { officeCode, isActive: true, isDeleted: false },
+  /**
+   * Resolves codes to rows, rejecting the whole set if any is unknown.
+   *
+   * Bound to the site, because the industry master holds every brand's list in
+   * one table — IT runs 1xx, cranes 2xx. Without that the desk could file an
+   * IT architect under "Cement & Building Materials", which exists, is active,
+   * and belongs to another business.
+   */
+  private async resolveIndustries(
+    codes: number[],
+    siteCode: number,
+  ): Promise<ArchitectIndustryMaster[]> {
+    const unique = [...new Set(codes)];
+    const industries = await this.industryRepo.find({
+      where: {
+        industryCode: In(unique),
+        siteCode,
+        isActive: true,
+        isDeleted: false,
+      },
     });
-    if (!office) {
-      throw new BadRequestException(`Unknown office code: ${officeCode}`);
+
+    if (industries.length !== unique.length) {
+      const found = industries.map((i) => i.industryCode);
+      const missing = unique.filter((c) => !found.includes(c));
+      throw new BadRequestException(
+        `Unknown industry code(s) for this unit: ${missing.join(', ')}`,
+      );
+    }
+    return industries;
+  }
+
+  /**
+   * One architect per email address, per site.
+   *
+   * Case- and space-insensitive: "A.Bakshi@veltrixair.com " and
+   * "a.bakshi@veltrixair.com" are one colleague, and a check that misses that
+   * is a check that lets the duplicate through on the second attempt.
+   * Deactivated rows count — the answer to "they already exist" is to
+   * reactivate them, not to add a second copy.
+   */
+  private async assertEmailIsFree(
+    email: string,
+    siteCode: number,
+    exceptId?: string,
+  ): Promise<void> {
+    const clash = await this.architectRepo
+      .createQueryBuilder('architect')
+      .where('lower(architect.email) = lower(:email)', { email: email.trim() })
+      .andWhere('architect.siteCode = :siteCode', { siteCode })
+      .andWhere('architect.isDeleted = false')
+      .getOne();
+
+    if (clash && clash.id !== exceptId) {
+      throw new BadRequestException(
+        `${clash.fullName ?? 'An architect'} is already on this unit with that email address.`,
+      );
     }
   }
 

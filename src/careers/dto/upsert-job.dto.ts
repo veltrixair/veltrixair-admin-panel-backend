@@ -2,7 +2,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
-  IsBoolean,
   IsIn,
   IsISO8601,
   IsInt,
@@ -19,9 +18,18 @@ import { IsApplicationFieldConfig } from '../../applications/dto/application-fie
 import type { ApplicationFieldConfig } from '../../applications/application-fields.constants';
 
 export class CreateJobDto {
+  /**
+   * Optional, and normally absent.
+   *
+   * The server draws the next one from `job_ref_code_seq` when it is not
+   * given — which is what the admin form's disabled "Issued on save" field
+   * has always promised. Accepted when supplied so an import can carry its
+   * own codes across.
+   */
+  @IsOptional()
   @IsString()
   @MaxLength(20)
-  refCode: string;
+  refCode?: string;
 
   @IsString()
   @MaxLength(200)
@@ -41,6 +49,11 @@ export class CreateJobDto {
   @IsNotEmpty({ message: 'Please write the job description.' })
   descriptionMdx: string;
 
+  /** Which careers page this posting appears on. */
+  @Type(() => Number)
+  @IsInt({ message: 'Please choose a category for this role.' })
+  categoryCode: number;
+
   @Type(() => Number)
   @IsInt()
   practiceCode: number;
@@ -52,9 +65,11 @@ export class CreateJobDto {
   @IsInt({ each: true })
   locationCodes: number[];
 
+  /** What the advert prints. The chips decide which filters find the role. */
+  @IsOptional()
   @IsString()
   @MaxLength(150)
-  locationLabel: string;
+  locationLabel?: string;
 
   @IsIn(WORK_MODES)
   workMode: WorkMode;
@@ -80,14 +95,6 @@ export class CreateJobDto {
   @IsString()
   @MaxLength(50)
   experienceLabel: string;
-
-  @IsOptional()
-  @IsBoolean()
-  visaSponsorship?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  hotRole?: boolean;
 
   @IsOptional()
   @Type(() => Number)
@@ -146,6 +153,11 @@ export class UpdateJobDto extends CreateJobDto {
   @IsString()
   @MaxLength(200)
   declare title: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  declare categoryCode: number;
 
   @IsOptional()
   @Type(() => Number)
