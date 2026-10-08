@@ -4,15 +4,10 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { CurrentSite } from '../common/site/current-site.decorator';
-import {
-  DiscoveryPracticeOption,
-  MasterDataService,
-} from '../master-data/master-data.service';
 import { BookingResult, BookingService } from './booking.service';
-import { AvailabilityQueryDto, SlotsQueryDto } from './dto/list-bookings.dto';
+import { TakenHoursQueryDto } from './dto/list-bookings.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { DiscoveryBooking } from './entities/discovery-booking.entity';
-import { DayAvailability, SlotOption, SlotService } from './slot.service';
 
 /**
  * Anonymous surface for /talk-to-architect/.
@@ -23,55 +18,38 @@ import { DayAvailability, SlotOption, SlotService } from './slot.service';
 @ApiTags('Discovery (public)')
 @Controller('discovery')
 export class PublicDiscoveryController {
-  constructor(
-    private readonly slotService: SlotService,
-    private readonly bookingService: BookingService,
-    private readonly masterData: MasterDataService,
-  ) {}
+  constructor(private readonly bookingService: BookingService) {}
 
-  /** "Pick a practice" — the six options and their architects. */
-  @Get('practices')
-  @ApiOperation({ summary: 'Practices available for a discovery session' })
-  @ResponseMessage('Practices retrieved')
-  practices(
-    @CurrentSite() siteCode: number,
-  ): Promise<DiscoveryPracticeOption[]> {
-    return this.masterData.getDiscoveryPractices(siteCode);
-  }
+  /*
+   * GONE: `practices`, `availability` and `slots`.
+   *
+   * All three belonged to the original journey — pick a practice, see that
+   * practice's architect, pick one of their free slots — and all three read
+   * the architect-to-practice link that no longer exists. The visitor now asks
+   * for an hour and the desk decides who takes it, so what is left below is
+   * which hours are free and the booking itself.
+   */
 
-  /** Per-day density for the calendar grid, in the visitor's timezone. */
-  @Get('availability')
-  @ApiOperation({
-    summary: 'Day-by-day availability density for the calendar grid',
-  })
-  @ResponseMessage('Availability retrieved')
-  availability(
-    @Query() query: AvailabilityQueryDto,
+  /**
+   * Which hours on a given day are already spoken for.
+   *
+   * What the booking calendar needs, and all it needs: sessions run every
+   * calendar day on the hour in India time, one booking per hour, so a time is
+   * offerable unless somebody already holds it. No architect is chosen at this
+   * point — the desk assigns one afterwards — so there is nothing to look up
+   * per-practice or per-diary.
+   *
+   * Returns the taken hours as "HH:00" strings in India time. The page already
+   * knows the full list of hours it draws; this says which to grey out.
+   */
+  @Get('taken-hours')
+  @ApiOperation({ summary: 'Hours already booked on a date (India time)' })
+  @ResponseMessage('Taken hours retrieved')
+  takenHours(
+    @Query() query: TakenHoursQueryDto,
     @CurrentSite() siteCode: number,
-  ): Promise<DayAvailability[]> {
-    return this.slotService.availability(
-      query.practiceCode,
-      query.from,
-      query.to,
-      query.timezone,
-      siteCode,
-    );
-  }
-
-  /** Bookable times on one of the visitor's local days. */
-  @Get('slots')
-  @ApiOperation({ summary: 'Bookable slots for a given local date' })
-  @ResponseMessage('Slots retrieved')
-  slots(
-    @Query() query: SlotsQueryDto,
-    @CurrentSite() siteCode: number,
-  ): Promise<SlotOption[]> {
-    return this.slotService.slotsForDay(
-      query.practiceCode,
-      query.date,
-      query.timezone,
-      siteCode,
-    );
+  ): Promise<{ date: string; taken: string[] }> {
+    return this.bookingService.takenHours(query.date, siteCode);
   }
 
   /** 5 bookings per hour per IP — this endpoint can block an architect's diary. */

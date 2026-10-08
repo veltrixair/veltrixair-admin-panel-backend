@@ -33,8 +33,10 @@ import { CraneQuoteEvent } from './quote/entities/crane-quote-event.entity';
 import { CraneQuoteRequest } from './quote/entities/crane-quote-request.entity';
 import { PublicCraneQuoteController } from './quote/public-crane-quote.controller';
 import { AdminCraneSiteVisitController } from './site-visit/admin-crane-site-visit.controller';
+import { CraneEngineerService } from './site-visit/crane-engineer.service';
 import { CraneSiteVisitService } from './site-visit/crane-site-visit.service';
 import { CraneSiteVisitEvent } from './site-visit/entities/crane-site-visit-event.entity';
+import { CraneEngineer } from './site-visit/entities/crane-engineer.entity';
 import { CraneSiteVisit } from './site-visit/entities/crane-site-visit.entity';
 import { PublicCraneSiteVisitController } from './site-visit/public-crane-site-visit.controller';
 import { CraneJobPosting } from './careers/entities/crane-job-posting.entity';
@@ -109,6 +111,7 @@ import { AdminCraneApplicationController } from './applications/admin-crane-appl
       CraneQuoteRequest,
       CraneQuoteEvent,
       // site visit
+      CraneEngineer,
       CraneSiteVisit,
       CraneSiteVisitEvent,
       CraneJobPosting,
@@ -138,10 +141,11 @@ import { AdminCraneApplicationController } from './applications/admin-crane-appl
   ],
   providers: [
     CraneQuoteService,
+    CraneEngineerService,
     CraneSiteVisitService,
     CraneCareerService,
     CraneApplicationService,
   ],
-  exports: [CraneQuoteService, CraneSiteVisitService],
+  exports: [CraneQuoteService, CraneSiteVisitService, CraneEngineerService],
 })
 export class CraneModule {}

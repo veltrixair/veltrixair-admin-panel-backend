@@ -15,15 +15,15 @@ import { Architect } from './architect.entity';
 import { SessionSlot } from './session-slot.entity';
 
 export const BOOKING_STATUSES = [
+  /** Arrived from the website. A time is held; nobody is assigned yet. */
+  'REQUESTED',
+  /** An architect has it and the invite has gone out. */
   'BOOKED',
   'COMPLETED',
   'CANCELLED',
   'NO_SHOW',
 ] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
-
-/** "Deliverables within two business days" — memo, checklist, scoping table. */
-export const DELIVERABLE_BUSINESS_DAYS = 2;
 
 /**
  * A confirmed discovery session.
@@ -50,8 +50,30 @@ export class DiscoveryBooking {
   @Column({ name: 'reference_no', type: 'varchar', length: 30 })
   referenceNo: string;
 
-  @Column({ name: 'slot_id', type: 'uuid' })
-  slotId: string;
+  /**
+   * When the visitor asked for, as an absolute instant.
+   *
+   * The session time, and the only scheduling fact the public form supplies.
+   * It used to be read off the slot, which no longer exists at the moment a
+   * booking is made. Sessions run on India time; this is stored as an instant
+   * so the stored value cannot drift with a server's local zone.
+   *
+   * One booking per instant, enforced by a partial unique index rather than a
+   * check in the service — two people confirming the same hour at the same
+   * moment both pass a read-then-write test.
+   */
+  @Index('idx_discovery_bookings_requested_start_at')
+  @Column({ name: 'requested_start_at', type: 'timestamptz' })
+  requestedStartAt: Date;
+
+  /**
+   * The architect's slot, once one is assigned.
+   *
+   * Null while the booking is REQUESTED: the website asks for a time, and who
+   * takes the session is decided afterwards in the admin panel.
+   */
+  @Column({ name: 'slot_id', type: 'uuid', nullable: true })
+  slotId: string | null;
 
   @OneToOne(() => SessionSlot, { onDelete: 'RESTRICT' })
   @JoinColumn({
@@ -62,8 +84,8 @@ export class DiscoveryBooking {
   slot?: SessionSlot;
 
   @Index('idx_discovery_bookings_architect_id')
-  @Column({ name: 'architect_id', type: 'uuid' })
-  architectId: string;
+  @Column({ name: 'architect_id', type: 'uuid', nullable: true })
+  architectId: string | null;
 
   @ManyToOne(() => Architect, { onDelete: 'RESTRICT' })
   @JoinColumn({
@@ -87,6 +109,25 @@ export class DiscoveryBooking {
   @Index('idx_discovery_bookings_work_email')
   @Column({ name: 'work_email', type: 'varchar', length: 255 })
   workEmail: string;
+
+  /**
+   * Dial code and number already joined — see common/utils/phone.util.
+   *
+   * Required of new bookings, matching the form, but nullable because the
+   * seven that predate this column never had one and inventing numbers for
+   * them would be worse than recording that they are missing.
+   *
+   * `select: false`: a direct line to a named person at a named company is
+   * contact data, not something to carry on every list query.
+   */
+  @Column({
+    name: 'phone',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+    select: false,
+  })
+  phone: string | null;
 
   /** "What's the programme?" */
   @Column({ name: 'programme', type: 'varchar', length: 2000, select: false })
@@ -116,10 +157,6 @@ export class DiscoveryBooking {
   @Index('idx_discovery_bookings_status')
   @Column({ name: 'status', type: 'varchar', length: 15, default: 'BOOKED' })
   status: BookingStatus;
-
-  /** Two business days after the session, on the architect's office calendar. */
-  @Column({ name: 'deliverables_due_at', type: 'timestamptz' })
-  deliverablesDueAt: Date;
 
   @Column({ name: 'invite_sent_at', type: 'timestamptz', nullable: true })
   inviteSentAt: Date | null;

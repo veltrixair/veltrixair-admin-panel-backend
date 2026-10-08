@@ -12,11 +12,6 @@ export class ListEnquiriesDto extends PaginationQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  topicCode?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
   officeCode?: number;
 
   /** Matches company or full name, case-insensitive. */

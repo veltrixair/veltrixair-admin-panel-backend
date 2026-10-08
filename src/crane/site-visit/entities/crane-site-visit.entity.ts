@@ -16,6 +16,7 @@ import { CraneAccessApprovalMaster } from '../../masters/entities/crane-access-a
 import { CraneAgeBandMaster } from '../../masters/entities/crane-age-band-master.entity';
 import { CraneEngagementTypeMaster } from '../../masters/entities/crane-engagement-type-master.entity';
 import { CraneEngineerVisaMaster } from '../../masters/entities/crane-engineer-visa-master.entity';
+import { CraneEngineer } from './crane-engineer.entity';
 import { CraneEnvironmentMaster } from '../../masters/entities/crane-environment-master.entity';
 import { CraneHotWorkMaster } from '../../masters/entities/crane-hot-work-master.entity';
 import { CraneLeadSourceMaster } from '../../masters/entities/crane-lead-source-master.entity';
@@ -424,6 +425,25 @@ export class CraneSiteVisit {
     nullable: true,
   })
   assignedEngineer: string | null;
+
+  /**
+   * The engineer from the roster, once there is one.
+   *
+   * Beside the text column rather than replacing it: visits assigned before
+   * the roster existed hold a typed address and nothing to point at, and
+   * rewriting those would be inventing a record. New assignments set this,
+   * and the panel prefers it when both are present.
+   */
+  @Column({ name: 'assigned_engineer_id', type: 'uuid', nullable: true })
+  assignedEngineerId: string | null;
+
+  @ManyToOne(() => CraneEngineer, { onDelete: 'RESTRICT' })
+  @JoinColumn({
+    name: 'assigned_engineer_id',
+    referencedColumnName: 'id',
+    foreignKeyConstraintName: 'vtx_crane_site_visits_assigned_engineer_id_fk',
+  })
+  assignedEngineerRecord?: CraneEngineer;
 
   @Column({ name: 'scheduled_at', type: 'timestamptz', nullable: true })
   scheduledAt: Date | null;

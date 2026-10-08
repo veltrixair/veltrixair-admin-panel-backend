@@ -3,9 +3,11 @@ import {
   ArrayNotEmpty,
   IsArray,
   IsBoolean,
+  IsEmail,
   IsIn,
   IsInt,
   IsISO8601,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Max,
@@ -16,83 +18,121 @@ import {
 import { BLACKOUT_REASONS } from '../entities/architect-blackout.entity';
 import type { BlackoutReason } from '../entities/architect-blackout.entity';
 
+/**
+ * A new architect.
+ *
+ * Everything here is required except the active flag. The columns behind
+ * email, phone, experience and industries are nullable only because nine
+ * architects predate them — see the entity. Nothing created through this DTO
+ * is allowed to be half a record.
+ */
 export class CreateArchitectDto {
   @IsString()
-  @MaxLength(120)
-  slug: string;
-
-  /** Optional — a practitioner can be recorded before their name is published. */
-  @IsOptional()
-  @IsString()
+  @IsNotEmpty({ message: 'Enter the architect’s full name.' })
   @MaxLength(150)
-  fullName?: string;
+  fullName: string;
 
-  /** Shown while `fullName` is unset, e.g. "Senior Architect — Data Privacy". */
+  @IsEmail({}, { message: 'Enter a valid email address.' })
+  @MaxLength(190)
+  email: string;
+
+  /*
+   * Deliberately loose. These are colleagues in several countries, written
+   * down however their own office writes them — "+966 55 123 4567" and
+   * "09800327990" are both somebody's real number, and a pattern strict
+   * enough to be worth having would reject one of them.
+   */
   @IsString()
+  @IsNotEmpty({ message: 'Enter a contact number.' })
+  @MaxLength(30)
+  phone: string;
+
+  /** e.g. "Senior Architect — Data Privacy". */
+  @IsString()
+  @IsNotEmpty({ message: 'Enter a designation.' })
   @MaxLength(150)
-  displayTitle: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  credentials?: string;
+  designation: string;
 
   /**
-   * The practices this architect covers. One or more — the disciplines
-   * overlap, so a practitioner may serve Cybersecurity & SOC and Data Privacy.
+   * The industries this architect knows — one or more, from the industry
+   * master the contact form already uses.
    */
   @IsArray()
-  @ArrayNotEmpty()
+  @ArrayNotEmpty({ message: 'Choose at least one industry.' })
   @Type(() => Number)
   @IsInt({ each: true })
-  practiceCodes: number[];
+  industryCodes: number[];
 
-  /** Drives the deliverables SLA — each office has its own working week. */
+  /**
+   * Years in the profession.
+   *
+   * Capped at 60 rather than left open: the pair of digits that gets typed by
+   * accident is the one worth catching, and nobody has a sixty-first year of
+   * practice to record.
+   */
   @Type(() => Number)
-  @IsInt()
-  officeCode: number;
+  @IsInt({ message: 'Experience must be a whole number of years.' })
+  @Min(0)
+  @Max(60)
+  experienceYears: number;
 
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 }
 
+/** The same record, every field optional — send only what changed. */
 export class UpdateArchitectDto extends CreateArchitectDto {
   @IsOptional()
   @IsString()
-  @MaxLength(120)
-  declare slug: string;
+  @IsNotEmpty({ message: 'Enter the architect’s full name.' })
+  @MaxLength(150)
+  declare fullName: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'Enter a valid email address.' })
+  @MaxLength(190)
+  declare email: string;
 
   @IsOptional()
   @IsString()
+  @IsNotEmpty({ message: 'Enter a contact number.' })
+  @MaxLength(30)
+  declare phone: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'Enter a designation.' })
   @MaxLength(150)
-  declare displayTitle: string;
+  declare designation: string;
 
   @IsOptional()
   @IsArray()
-  @ArrayNotEmpty()
+  @ArrayNotEmpty({ message: 'Choose at least one industry.' })
   @Type(() => Number)
   @IsInt({ each: true })
-  declare practiceCodes: number[];
+  declare industryCodes: number[];
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
-  declare officeCode: number;
+  @IsInt({ message: 'Experience must be a whole number of years.' })
+  @Min(0)
+  @Max(60)
+  declare experienceYears: number;
 }
 
 /**
- * Replaces the whole set of practices an architect covers.
+ * Replaces the whole set of industries an architect covers.
  *
  * A replace rather than add/remove: the caller states the intended end state,
  * so there is no ordering hazard when two edits land close together.
  */
-export class AssignPracticesDto {
+export class AssignIndustriesDto {
   @IsArray()
-  @ArrayNotEmpty()
+  @ArrayNotEmpty({ message: 'Choose at least one industry.' })
   @Type(() => Number)
   @IsInt({ each: true })
-  practiceCodes: number[];
+  industryCodes: number[];
 }
 
 export class AvailabilityRuleDto {

@@ -1,11 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
-import {
-  getZonedParts,
-  toIsoDate,
-  zonedTimeToUtc,
-} from '../common/utils/business-hours.util';
+import { In, Repository } from 'typeorm';
+import { toIsoDate, zonedTimeToUtc } from '../common/utils/business-hours.util';
 import { ArchitectAvailabilityRule } from './entities/architect-availability-rule.entity';
 import { ArchitectBlackout } from './entities/architect-blackout.entity';
 import { Architect } from './entities/architect.entity';
@@ -33,15 +29,6 @@ export interface SlotOption {
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/** Thresholds behind the page's four availability labels. */
-function densityFor(free: number, total: number): AvailabilityDensity {
-  if (total === 0) return 'UNAVAILABLE';
-  if (free === 0) return 'FULLY_BOOKED';
-  if (free <= 2) return 'LIMITED';
-  if (free <= 5) return 'SOME';
-  return 'WIDE';
-}
 
 @Injectable()
 export class SlotService {
@@ -174,152 +161,15 @@ export class SlotService {
     return { created, skipped: candidates.length - created };
   }
 
-  // -----------------------------------------------------------------------
-  // Availability
-  // -----------------------------------------------------------------------
-
-  /**
-   * Per-day density for the calendar grid, grouped in the VISITOR's timezone.
+  /*
+   * GONE: availability(), slotsForDay() and findArchitectsForPractice().
    *
-   * This is the subtle part: a slot at 09:00 Riyadh is the previous calendar day
-   * for a visitor in Los Angeles. Grouping by the KSA date would file it under
-   * the wrong day, so the range is widened by a day either side and every slot
-   * is bucketed by its local date for the requested zone.
+   * All three answered "when is the architect for this practice free?", which
+   * nobody asks any more: the visitor picks an hour and the desk assigns
+   * afterwards. They read the architect-to-practice link that no longer
+   * exists, so leaving them would have left three methods that compile and
+   * throw — which is exactly how the booking list broke.
    */
-  async availability(
-    practiceCode: number,
-    fromIso: string,
-    toIso: string,
-    timezone: string,
-    siteCode: number,
-  ): Promise<DayAvailability[]> {
-    this.assertTimezone(timezone);
-
-    const architects = await this.findArchitectsForPractice(
-      practiceCode,
-      siteCode,
-    );
-    if (architects.length === 0) return [];
-
-    // A day of slack each side absorbs the offset between zones.
-    const rangeStart = new Date(
-      new Date(`${fromIso}T00:00:00Z`).getTime() - MS_PER_DAY,
-    );
-    const rangeEnd = new Date(
-      new Date(`${toIso}T00:00:00Z`).getTime() + 2 * MS_PER_DAY,
-    );
-
-    const slots = await this.slotRepo.find({
-      where: {
-        architectId: In(architects.map((a) => a.id)),
-        startsAt: Between(rangeStart, rangeEnd),
-      },
-    });
-
-    const buckets = new Map<string, { free: number; total: number }>();
-    for (const slot of slots) {
-      const p = getZonedParts(slot.startsAt, timezone);
-      const localDate = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
-      if (localDate < fromIso || localDate > toIso) continue;
-
-      const bucket = buckets.get(localDate) ?? { free: 0, total: 0 };
-      bucket.total += 1;
-      if (slot.status === 'FREE' && slot.startsAt > new Date())
-        bucket.free += 1;
-      buckets.set(localDate, bucket);
-    }
-
-    return [...buckets.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, { free, total }]) => ({
-        date,
-        freeSlots: free,
-        totalSlots: total,
-        density: densityFor(free, total),
-      }));
-  }
-
-  /**
-   * Bookable times on one day.
-   *
-   * `dateIso` is the VISITOR's local date, not KSA's — the same convention as
-   * the calendar grid, so clicking a cell and listing its slots agree.
-   */
-  async slotsForDay(
-    practiceCode: number,
-    dateIso: string,
-    timezone: string,
-    siteCode: number,
-  ): Promise<SlotOption[]> {
-    this.assertTimezone(timezone);
-
-    const architects = await this.findArchitectsForPractice(
-      practiceCode,
-      siteCode,
-    );
-    if (architects.length === 0) return [];
-
-    const rangeStart = new Date(
-      new Date(`${dateIso}T00:00:00Z`).getTime() - MS_PER_DAY,
-    );
-    const rangeEnd = new Date(
-      new Date(`${dateIso}T00:00:00Z`).getTime() + 2 * MS_PER_DAY,
-    );
-
-    const slots = await this.slotRepo.find({
-      where: {
-        architectId: In(architects.map((a) => a.id)),
-        status: 'FREE',
-        startsAt: Between(rangeStart, rangeEnd),
-      },
-      order: { startsAt: 'ASC' },
-    });
-
-    const now = new Date();
-    return slots
-      .filter((slot) => {
-        if (slot.startsAt <= now) return false;
-        const p = getZonedParts(slot.startsAt, timezone);
-        const local = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
-        return local === dateIso;
-      })
-      .map((slot) => {
-        const p = getZonedParts(slot.startsAt, timezone);
-        return {
-          id: slot.id,
-          startsAt: slot.startsAt,
-          endsAt: slot.endsAt,
-          localTime: `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`,
-          durationMinutes: SESSION_MINUTES,
-        };
-      });
-  }
-
-  /**
-   * Architects covering a practice.
-   *
-   * A join rather than a column lookup — an architect may cover several
-   * practices, so a practice's availability is the union of everyone who
-   * serves it.
-   */
-  /**
-   * The anchor for both public slot queries. Slots belong to architects, and
-   * architects belong to a brand — so scoping this scopes availability and the
-   * day view together, without site filters scattered through the date maths.
-   */
-  private findArchitectsForPractice(
-    practiceCode: number,
-    siteCode: number,
-  ): Promise<Architect[]> {
-    return this.architectRepo
-      .createQueryBuilder('architect')
-      .innerJoin('architect.practices', 'practice')
-      .where('practice.practiceCode = :practiceCode', { practiceCode })
-      .andWhere('architect.isActive = true')
-      .andWhere('architect.isDeleted = false')
-      .andWhere('architect.siteCode = :siteCode', { siteCode })
-      .getMany();
-  }
 
   private assertTimezone(timezone: string): void {
     try {

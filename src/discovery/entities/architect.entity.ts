@@ -3,26 +3,23 @@ import {
   CreateDateColumn,
   DeleteDateColumn,
   Entity,
-  JoinColumn,
   JoinTable,
   ManyToMany,
-  ManyToOne,
   PrimaryGeneratedColumn,
-  Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { DiscoveryPracticeMaster } from '../../master-data/entities/discovery-practice-master.entity';
-import { OfficeMaster } from '../../master-data/entities/office-master.entity';
+import { ArchitectIndustryMaster } from '../../master-data/entities/architect-industry-master.entity';
 
 /**
- * The senior architect a visitor meets for a given practice.
+ * A senior architect the desk can give a discovery session to.
  *
- * One architect per practice today, but modelled as many-to-one so a practice
- * can gain a second architect without a migration — the slot generator already
- * works per architect.
+ * A personnel record rather than a public profile. Nobody outside picks an
+ * architect any more — the visitor asks for an hour and the desk decides who
+ * takes it — so what this holds is what the desk needs in order to decide and
+ * to get hold of them: who they are, how to reach them, what they do, which
+ * industries they know and how long they have been doing it.
  */
 @Entity({ name: 'architects' })
-@Unique('vtx_architects_slug_unique', ['slug'])
 export class Architect {
   @PrimaryGeneratedColumn('uuid', {
     primaryKeyConstraintName: 'vtx_architects_id_pk',
@@ -33,54 +30,63 @@ export class Architect {
   @Column({ name: 'site_code', type: 'int' })
   siteCode: number;
 
-  @Column({ name: 'slug', type: 'varchar', length: 120 })
-  slug: string;
-
-  /** Null until the real practitioner is named. */
+  /**
+   * Nullable in the column, required by the DTO.
+   *
+   * Four of the nine rows that predate this redesign were placeholders with a
+   * title and no person. Rather than invent names for them, they stay visibly
+   * unnamed until somebody fills them in; nothing created from now on can be.
+   */
   @Column({ name: 'full_name', type: 'varchar', length: 150, nullable: true })
   fullName: string | null;
 
-  /** Shown while `full_name` is unset, e.g. "Senior Architect". */
-  @Column({ name: 'display_title', type: 'varchar', length: 150 })
-  displayTitle: string;
+  /** e.g. "Senior Architect — Data Privacy". */
+  @Column({ name: 'designation', type: 'varchar', length: 150 })
+  designation: string;
 
-  /** "Partner or principal with 10–18 years of multi-jurisdictional delivery." */
-  @Column({ name: 'credentials', type: 'varchar', length: 500, nullable: true })
-  credentials: string | null;
+  /*
+   * Contact details for a named member of staff.
+   *
+   * Not `select: false`, unlike the attendee's: an attendee's number is a
+   * stranger's personal data that the desk reads once, while these are the
+   * working details of a colleague, needed on every screen that lists them.
+   */
+  @Column({ name: 'email', type: 'varchar', length: 190, nullable: true })
+  email: string | null;
+
+  @Column({ name: 'phone', type: 'varchar', length: 30, nullable: true })
+  phone: string | null;
+
+  /** Years in the profession, not years at the firm. */
+  @Column({ name: 'experience_years', type: 'int', nullable: true })
+  experienceYears: number | null;
 
   /**
-   * The practices this architect covers.
+   * The industries this architect knows.
    *
-   * Many-to-many because the disciplines overlap — Cybersecurity & SOC and
-   * Data Privacy in particular — so one practitioner may serve both, while a
-   * practice may also have several architects.
+   * Many-to-many because seniority spans sectors: somebody who has delivered
+   * for a bank and for a hospital group is one architect, not two, and forcing
+   * a single choice would file them under whichever the desk thought of first.
+   *
+   * Its own master rather than the contact form's `industry_masters`: that
+   * list asks a visitor what business they are in, this one says what an
+   * architect does. See ArchitectIndustryMaster.
    */
-  @ManyToMany(() => DiscoveryPracticeMaster, { eager: false })
+  @ManyToMany(() => ArchitectIndustryMaster, { eager: false })
   @JoinTable({
-    name: 'architect_practices',
+    name: 'architect_industries',
     joinColumn: {
       name: 'architect_id',
       referencedColumnName: 'id',
-      foreignKeyConstraintName: 'vtx_architect_practices_architect_id_fk',
+      foreignKeyConstraintName: 'vtx_architect_industries_architect_id_fk',
     },
     inverseJoinColumn: {
-      name: 'practice_code',
-      referencedColumnName: 'practiceCode',
-      foreignKeyConstraintName: 'vtx_architect_practices_practice_code_fk',
+      name: 'industry_code',
+      referencedColumnName: 'industryCode',
+      foreignKeyConstraintName: 'vtx_architect_industries_industry_code_fk',
     },
   })
-  practices: DiscoveryPracticeMaster[];
-
-  @Column({ name: 'office_code', type: 'int' })
-  officeCode: number;
-
-  @ManyToOne(() => OfficeMaster, { onDelete: 'RESTRICT' })
-  @JoinColumn({
-    name: 'office_code',
-    referencedColumnName: 'officeCode',
-    foreignKeyConstraintName: 'vtx_architects_office_code_fk',
-  })
-  office?: OfficeMaster;
+  industries: ArchitectIndustryMaster[];
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;

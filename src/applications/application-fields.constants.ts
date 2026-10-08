@@ -19,8 +19,7 @@
 
 /** Always collected. Not toggleable, so never present in the config. */
 export const ALWAYS_ON = [
-  'firstName',
-  'lastName',
+  'fullName',
   'email',
   'resume',
   'consentGiven',
@@ -37,7 +36,7 @@ export const APPLICATION_FIELDS = {
   phone: { label: 'Phone', properties: ['phone'] },
   currentLocation: {
     label: 'Current location',
-    properties: ['city', 'countryCode'],
+    properties: ['city', 'currentCountry'],
   },
   linkedinUrl: { label: 'LinkedIn profile', properties: ['linkedinUrl'] },
   portfolioUrl: { label: 'Portfolio / GitHub', properties: ['portfolioUrl'] },
@@ -51,12 +50,12 @@ export const APPLICATION_FIELDS = {
     properties: ['currentCompany', 'currentTitle'],
   },
   totalExperience: {
-    label: 'Total experience (yrs)',
-    properties: ['experienceYears'],
+    label: 'Total experience',
+    properties: ['experienceBandCode'],
   },
   relevantExperience: {
-    label: 'Relevant experience (yrs)',
-    properties: ['relevantExperienceYears'],
+    label: 'Relevant experience',
+    properties: ['relevantExperienceBandCode'],
   },
   keySkills: { label: 'Key skills', properties: ['keySkills'] },
   currentCtc: { label: 'Current CTC', properties: ['currentCtc'] },
@@ -94,28 +93,38 @@ export type ApplicationFieldConfig = Partial<
 /**
  * What a posting asks when it has no configuration of its own.
  *
- * Matches the form as drawn: everything on except "How did you hear about us?"
- * and work authorisation, with the four the design marks required. Postings
- * created before this feature existed fall back to this, so their behaviour
- * does not change.
+ * Everything on except "How did you hear about us?" and work authorisation,
+ * with four questions marked required. Postings created before this feature
+ * existed fall back to this, so their behaviour does not change.
+ *
+ * The required four are taken from the apply form on the website rather than
+ * chosen here: a question the form lets someone skip but the server then
+ * refuses is an error nobody can act on — the field they are being asked for
+ * is not on screen. Qualification and current location are required there and
+ * were optional here; expected CTC and notice period were the reverse. Both
+ * halves of that mismatch rejected real applications.
+ *
+ * A posting that genuinely needs CTC or notice up front can still demand it by
+ * storing its own config — that is what the override is for. This is only the
+ * default, and the default should match what is actually drawn.
  */
 export const DEFAULT_APPLICATION_FIELDS: Record<
   ApplicationFieldKey,
   FieldSetting
 > = {
   phone: { on: true, required: true },
-  currentLocation: { on: true, required: false },
+  currentLocation: { on: true, required: true },
   linkedinUrl: { on: true, required: false },
   portfolioUrl: { on: true, required: false },
-  qualification: { on: true, required: false },
+  qualification: { on: true, required: true },
   source: { on: false, required: false },
   currentEmployer: { on: true, required: false },
   totalExperience: { on: true, required: true },
   relevantExperience: { on: true, required: false },
   keySkills: { on: true, required: false },
   currentCtc: { on: true, required: false },
-  expectedCtc: { on: true, required: true },
-  noticePeriod: { on: true, required: true },
+  expectedCtc: { on: true, required: false },
+  noticePeriod: { on: true, required: false },
   willingToRelocate: { on: true, required: false },
   workAuthorisation: { on: false, required: false },
   coverNote: { on: true, required: false },

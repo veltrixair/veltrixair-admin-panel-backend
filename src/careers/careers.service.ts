@@ -13,6 +13,7 @@ import { CreateJobDto, UpdateJobDto } from './dto/upsert-job.dto';
 import { toJobDetail, toJobListItem } from './dto/job-response.dto';
 import type { JobDetail, JobListItem } from './dto/job-response.dto';
 import { JobApplication } from '../applications/entities/job-application.entity';
+import { ReferenceNumberService } from '../common/services/reference-number.service';
 import { JobPosting } from './entities/job-posting.entity';
 import type { JobStatus } from './entities/job-posting.entity';
 
@@ -34,6 +35,7 @@ export class CareersService {
     private readonly officeRepo: Repository<OfficeMaster>,
     @InjectRepository(JobApplication)
     private readonly applicationRepo: Repository<JobApplication>,
+    private readonly referenceNumbers: ReferenceNumberService,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -62,6 +64,7 @@ export class CareersService {
   async findBySlug(slug: string, siteCode: number): Promise<JobDetail> {
     const job = await this.jobRepo
       .createQueryBuilder('job')
+      .leftJoinAndSelect('job.category', 'category')
       .leftJoinAndSelect('job.practice', 'practice')
       .leftJoinAndSelect('job.locations', 'location')
       .leftJoinAndSelect('job.office', 'office')
@@ -147,7 +150,12 @@ export class CareersService {
   async findById(id: string, siteCode: number): Promise<JobPosting> {
     const job = await this.jobRepo.findOne({
       where: { id, isDeleted: false, siteCode },
-      relations: { practice: true, locations: true, office: true },
+      relations: {
+        category: true,
+        practice: true,
+        locations: true,
+        office: true,
+      },
     });
     if (!job) {
       throw new NotFoundException(`Job ${id} not found`);
@@ -156,13 +164,24 @@ export class CareersService {
   }
 
   async create(dto: CreateJobDto, siteCode: number): Promise<JobPosting> {
-    await this.assertRefCodeAndSlugFree(siteCode, dto.refCode, dto.slug);
+    /*
+     * The reference is ours to issue unless the caller insists on one.
+     *
+     * Drawn from a sequence rather than counted, because two people creating
+     * a role at once would otherwise both compute the same next number and
+     * one of them would lose to the unique index.
+     */
+    const refCode =
+      dto.refCode ??
+      (await this.referenceNumbers.nextShort('R', 'job_ref_code_seq'));
+
+    await this.assertRefCodeAndSlugFree(siteCode, refCode, dto.slug);
 
     const job = this.jobRepo.create({
       ...this.mapScalars(dto),
       officeCode: await this.resolveOffice(siteCode, dto.officeCode),
       siteCode,
-      refCode: dto.refCode,
+      refCode,
       slug: dto.slug,
       title: dto.title,
       locations: await this.resolveLocations(dto.locationCodes),
@@ -198,7 +217,9 @@ export class CareersService {
         where: { officeCode, siteCode, isActive: true, isDeleted: false },
       });
       if (!chosen) {
-        throw new BadRequestException(`Unknown or inactive office: ${officeCode}`);
+        throw new BadRequestException(
+          `Unknown or inactive office: ${officeCode}`,
+        );
       }
       return chosen.officeCode;
     }
@@ -307,10 +328,17 @@ export class CareersService {
   ): SelectQueryBuilder<JobPosting> {
     const qb = this.jobRepo
       .createQueryBuilder('job')
+      .leftJoinAndSelect('job.category', 'category')
       .leftJoinAndSelect('job.practice', 'practice')
       .leftJoinAndSelect('job.locations', 'location')
       .where('job.isDeleted = false')
       .andWhere('job.siteCode = :siteCode', { siteCode });
+
+    if (query.category) {
+      qb.andWhere('category.slug = :categorySlug', {
+        categorySlug: query.category,
+      });
+    }
 
     if (query.practice) {
       qb.andWhere('practice.slug = :practiceSlug', {
@@ -345,10 +373,6 @@ export class CareersService {
       );
     }
 
-    if (query.hotOnly === 'true') {
-      qb.andWhere('job.hotRole = true');
-    }
-
     switch (query.sort) {
       case 'oldest':
         qb.orderBy('job.postedAt', 'ASC');
@@ -361,7 +385,8 @@ export class CareersService {
         break;
       default:
         // Hot roles first, then curated order — matches how the page reads.
-        qb.orderBy('job.hotRole', 'DESC').addOrderBy('job.displayOrder', 'ASC');
+        // Curated order — the sequence a recruiter arranged in the panel.
+        qb.orderBy('job.displayOrder', 'ASC');
     }
 
     return qb;
@@ -428,19 +453,18 @@ export class CareersService {
 
   /** Copies the plain columns a DTO may carry, leaving relations alone. */
   private mapScalars(
-    dto: UpdateJobDto,
+    dto: CreateJobDto | UpdateJobDto,
     current?: JobPosting,
   ): Partial<JobPosting> {
     return {
       descriptionMdx: dto.descriptionMdx ?? current?.descriptionMdx ?? null,
+      categoryCode: dto.categoryCode ?? current?.categoryCode,
       practiceCode: dto.practiceCode ?? current?.practiceCode,
       locationLabel: dto.locationLabel ?? current?.locationLabel,
       workMode: dto.workMode ?? current?.workMode ?? 'ONSITE',
       officeCode: dto.officeCode ?? current?.officeCode,
       employmentType: dto.employmentType ?? current?.employmentType,
       experienceLabel: dto.experienceLabel ?? current?.experienceLabel,
-      visaSponsorship: dto.visaSponsorship ?? current?.visaSponsorship ?? null,
-      hotRole: dto.hotRole ?? current?.hotRole ?? false,
       displayOrder: dto.displayOrder ?? current?.displayOrder ?? 0,
       seoTitle: dto.seoTitle ?? current?.seoTitle ?? null,
       seoDescription: dto.seoDescription ?? current?.seoDescription ?? null,
