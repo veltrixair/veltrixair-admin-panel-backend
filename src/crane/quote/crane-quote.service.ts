@@ -693,7 +693,17 @@ export class CraneQuoteService implements OnModuleInit {
     return link;
   }
 
-  listEvents(id: string): Promise<CraneQuoteEvent[]> {
+  /**
+   * The timeline, after confirming the quote is this brand's.
+   *
+   * It used to read the events by quote id alone. Every other read on this
+   * desk goes through a site-checked lookup first, and an id that belongs to
+   * another brand should be a 404 rather than a timeline.
+   */
+  async listEvents(id: string): Promise<CraneQuoteEvent[]> {
+    /* findById pins SITE_CODE, so an id from another brand 404s here
+       rather than returning its timeline. */
+    await this.findById(id);
     return this.eventRepo.find({
       where: { quoteId: id },
       order: { createdDate: 'ASC' },

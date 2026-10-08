@@ -3,11 +3,11 @@ import {
   IsIn,
   IsInt,
   IsISO8601,
-  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  MinLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { BOOKING_STATUSES } from '../entities/discovery-booking.entity';
@@ -32,7 +32,7 @@ export class ListBookingsDto extends PaginationQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  practiceCode?: number;
+  industryCode?: number;
 
   @IsOptional()
   @IsString()
@@ -61,15 +61,60 @@ export class ListBookingsDto extends PaginationQueryDto {
 }
 
 /**
- * Emergency cover: hand the session to someone else at the same hour.
+ * Give the session an architect — the first one, or a different one.
  *
- * Only the architect is named. The time is deliberately not settable — the
- * attendee chose that hour around their own diary, so moving it solves our
- * problem by creating theirs.
+ * Only the architect is named. Moving the hour is a separate action with its
+ * own letter to the attendee — see RescheduleBookingDto. Keeping them apart is
+ * the point: changing who takes a session is routine, changing when it happens
+ * rearranges somebody else's diary, and the two should not share one button.
  */
-export class ReassignBookingDto {
+export class AssignBookingDto {
   @IsUUID()
   architectId: string;
+}
+
+/**
+ * Move a session to another hour.
+ *
+ * For a time the attendee has already agreed to. The backend cannot tell an
+ * arrangement from a unilateral move, so it does the one thing it can: it
+ * writes to them every time, naming both hours, rather than letting a session
+ * slide silently.
+ *
+ * `reason` is optional and goes to the attendee verbatim when given. Not
+ * required, because by the time the desk edits this the why has usually been
+ * said on a call — but a move with no explanation at all reads badly, so give
+ * one unless they already know.
+ */
+export class RescheduleBookingDto {
+  @IsISO8601(
+    { strict: true },
+    {
+      message:
+        'requestedStartAt must be a full date and time with its offset, ' +
+        'e.g. 2026-11-17T15:00:00+05:30 — not a time on its own.',
+    },
+  )
+  requestedStartAt: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+/**
+ * An internal note on a booking.
+ *
+ * Internal in the strict sense: it is never sent to the attendee and never
+ * leaves the panel. Append-only too — the timeline is a record of what was
+ * thought at the time, and one that can be edited afterwards is not.
+ */
+export class AddBookingNoteDto {
+  @IsString()
+  @MinLength(1, { message: 'Write something before saving the note.' })
+  @MaxLength(2000)
+  note: string;
 }
 
 export class UpdateBookingStatusDto {
@@ -78,42 +123,14 @@ export class UpdateBookingStatusDto {
 }
 
 /**
- * Query for the calendar grid.
- *
- * `from`/`to` are the VISITOR's local dates, and `timezone` is what makes that
- * meaningful — a slot at 09:00 Riyadh belongs to the previous calendar day for
- * someone in Los Angeles, so the grouping has to know whose days these are.
+ * One calendar day, India time. No practice and no timezone: sessions are
+ * scheduled in one zone and the architect is chosen afterwards, so neither
+ * narrows the answer.
  */
-export class AvailabilityQueryDto {
-  @Type(() => Number)
-  @IsInt()
-  practiceCode: number;
-
-  @IsISO8601({ strict: false })
-  from: string;
-
-  @IsISO8601({ strict: false })
-  to: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'A timezone is required.' })
-  @MaxLength(64)
-  timezone: string;
-}
-
-export class SlotsQueryDto {
-  @Type(() => Number)
-  @IsInt()
-  practiceCode: number;
-
-  /** The visitor's local date, `YYYY-MM-DD`. */
+export class TakenHoursQueryDto {
+  /** `YYYY-MM-DD`, read as an India-time date. */
   @IsISO8601({ strict: false })
   date: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'A timezone is required.' })
-  @MaxLength(64)
-  timezone: string;
 }
 
 export class GenerateSlotsDto {

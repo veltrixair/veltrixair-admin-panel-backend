@@ -9,6 +9,15 @@ export type JobSort = (typeof JOB_SORTS)[number];
 
 /** Mirrors the filter controls on /careers/. */
 export class ListJobsDto extends PaginationQueryDto {
+  /**
+   * Which careers page is asking — slug form: "internship", "coach",
+   * "experienced". Omit to list every category.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  category?: string;
+
   /** Practice chip — slug form, e.g. "cyber", "business-apps". Omit for "All". */
   @IsOptional()
   @IsString()
@@ -31,10 +40,6 @@ export class ListJobsDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(100)
   search?: string;
-
-  @IsOptional()
-  @IsIn(['true', 'false'])
-  hotOnly?: string;
 
   @IsOptional()
   @IsIn(JOB_SORTS)

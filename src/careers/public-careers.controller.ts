@@ -36,7 +36,9 @@ export class PublicCareersController {
    * place, so it appears under workModes.
    */
   @Get('filters')
-  @ApiOperation({ summary: 'Practice, location and work-mode filter options' })
+  @ApiOperation({
+    summary: 'Category, practice, location and work-mode filter options',
+  })
   @ResponseMessage('Filters retrieved')
   async getFilters(@CurrentSite() siteCode: number): Promise<CareerFilters> {
     const options = await this.masterData.getCareerFilterOptions(siteCode);

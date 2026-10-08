@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApplicationSourceMaster } from './entities/application-source-master.entity';
@@ -6,14 +10,15 @@ import { ArticleTopicMaster } from './entities/article-topic-master.entity';
 import { ArticleTypeMaster } from './entities/article-type-master.entity';
 import { Architect } from '../discovery/entities/architect.entity';
 import { CountryMaster } from './entities/country-master.entity';
+import { ExperienceBandMaster } from './entities/experience-band-master.entity';
 import { NoticePeriodMaster } from './entities/notice-period-master.entity';
 import { QualificationMaster } from './entities/qualification-master.entity';
 import { WorkAuthorisationMaster } from './entities/work-authorisation-master.entity';
 import { DiscoveryPracticeMaster } from './entities/discovery-practice-master.entity';
 import { RegionMaster } from './entities/region-master.entity';
 import { EnquiryTimelineMaster } from './entities/enquiry-timeline-master.entity';
-import { EnquiryTopicMaster } from './entities/enquiry-topic-master.entity';
 import { IndustryMaster } from './entities/industry-master.entity';
+import { JobCategoryMaster } from './entities/job-category-master.entity';
 import { JobLocationMaster } from './entities/job-location-master.entity';
 import { OfficeMaster } from './entities/office-master.entity';
 import { KnodeBedBandMaster } from './entities/knode-bed-band-master.entity';
@@ -41,7 +46,6 @@ export interface FilterOption {
 }
 
 export interface ContactFormOptions {
-  topics: FormOption[];
   countries: FormOption[];
   industries: FormOption[];
   timelines: FormOption[];
@@ -72,6 +76,12 @@ export interface KnodeDemoOptions {
 }
 
 export interface CareerFilterOptions {
+  /**
+   * Which careers page a posting belongs on — Internship, Coach, Experienced.
+   * The slug is what the pages send as ?category=, and the code is what the
+   * admin job form has to supply: categoryCode is required on create.
+   */
+  categories: FilterOption[];
   practices: FilterOption[];
   locations: FilterOption[];
 }
@@ -83,6 +93,16 @@ export interface ApplyFormOptions {
   workAuthorisations: FormOption[];
   sources: FormOption[];
   countries: FormOption[];
+  /** Every band, for the "Total experience" dropdown. */
+  experienceBands: FormOption[];
+  /**
+   * The same list with Fresher removed, for "Relevant experience".
+   *
+   * Returned as its own array rather than leaving the form to filter a flag:
+   * the browser deciding which options are legal is how a dropdown drifts out
+   * of step with what the server will accept.
+   */
+  relevantExperienceBands: FormOption[];
 }
 
 /** Type chips are colour-coded on the insights page. */
@@ -96,22 +116,9 @@ export interface InsightFilterOptions {
   regions: FilterOption[];
 }
 
-/** "Pick a practice" on the discovery page, with the architect you would meet. */
-export interface DiscoveryPracticeOption extends FilterOption {
-  architect: {
-    /** Falls back to the display title while the practitioner is unnamed. */
-    name: string;
-    credentials: string | null;
-    /** True while the real practitioner has not been recorded. */
-    profilePending: boolean;
-  } | null;
-}
-
 @Injectable()
 export class MasterDataService {
   constructor(
-    @InjectRepository(EnquiryTopicMaster)
-    private readonly topicRepo: Repository<EnquiryTopicMaster>,
     @InjectRepository(CountryMaster)
     private readonly countryRepo: Repository<CountryMaster>,
     @InjectRepository(IndustryMaster)
@@ -122,6 +129,8 @@ export class MasterDataService {
     private readonly officeRepo: Repository<OfficeMaster>,
     @InjectRepository(PracticeAreaMaster)
     private readonly practiceRepo: Repository<PracticeAreaMaster>,
+    @InjectRepository(JobCategoryMaster)
+    private readonly jobCategoryRepo: Repository<JobCategoryMaster>,
     @InjectRepository(JobLocationMaster)
     private readonly jobLocationRepo: Repository<JobLocationMaster>,
     @InjectRepository(ArticleTypeMaster)
@@ -136,6 +145,8 @@ export class MasterDataService {
     private readonly architectRepo: Repository<Architect>,
     @InjectRepository(QualificationMaster)
     private readonly qualificationRepo: Repository<QualificationMaster>,
+    @InjectRepository(ExperienceBandMaster)
+    private readonly experienceBandRepo: Repository<ExperienceBandMaster>,
     @InjectRepository(NoticePeriodMaster)
     private readonly noticePeriodRepo: Repository<NoticePeriodMaster>,
     @InjectRepository(WorkAuthorisationMaster)
@@ -155,40 +166,6 @@ export class MasterDataService {
     @InjectRepository(KnodeCallWindowMaster)
     private readonly knodeCallWindowRepo: Repository<KnodeCallWindowMaster>,
   ) {}
-
-  async getDiscoveryPractices(
-    siteCode: number,
-  ): Promise<DiscoveryPracticeOption[]> {
-    const [practices, architects] = await Promise.all([
-      this.discoveryPracticeRepo.find({
-        where: { isActive: true, isDeleted: false, siteCode },
-        order: { displayOrder: 'ASC' },
-      }),
-      this.architectRepo.find({
-        where: { isActive: true, isDeleted: false, siteCode },
-        relations: { practices: true },
-      }),
-    ]);
-
-    return practices.map((p) => {
-      // An architect may cover several practices, so match against the set.
-      const architect = architects.find((a) =>
-        (a.practices ?? []).some((ap) => ap.practiceCode === p.practiceCode),
-      );
-      return {
-        code: p.practiceCode,
-        name: p.practiceName,
-        slug: p.slug,
-        architect: architect
-          ? {
-              name: architect.fullName ?? architect.displayTitle,
-              credentials: architect.credentials,
-              profilePending: !architect.fullName,
-            }
-          : null,
-      };
-    });
-  }
 
   /** The three filter rows on /insights/. */
   async getInsightFilterOptions(
@@ -233,7 +210,11 @@ export class MasterDataService {
 
   /** Filter chip values for /careers/. */
   async getCareerFilterOptions(siteCode: number): Promise<CareerFilterOptions> {
-    const [practices, locations] = await Promise.all([
+    const [categories, practices, locations] = await Promise.all([
+      this.jobCategoryRepo.find({
+        where: { isActive: true, isDeleted: false, siteCode },
+        order: { displayOrder: 'ASC' },
+      }),
       this.practiceRepo.find({
         where: { isActive: true, isDeleted: false, siteCode },
         order: { displayOrder: 'ASC' },
@@ -245,6 +226,11 @@ export class MasterDataService {
     ]);
 
     return {
+      categories: categories.map((c) => ({
+        code: c.categoryCode,
+        name: c.categoryName,
+        slug: c.slug,
+      })),
       practices: practices.map((p) => ({
         code: p.practiceCode,
         name: p.practiceName,
@@ -263,11 +249,7 @@ export class MasterDataService {
    * never hardcodes option lists that can drift out of sync with the database.
    */
   async getContactFormOptions(siteCode: number): Promise<ContactFormOptions> {
-    const [topics, countries, industries, timelines] = await Promise.all([
-      this.topicRepo.find({
-        where: { isActive: true, isDeleted: false, siteCode },
-        order: { displayOrder: 'ASC' },
-      }),
+    const [countries, industries, timelines] = await Promise.all([
       this.countryRepo.find({
         where: { isActive: true, isDeleted: false },
         order: { displayOrder: 'ASC' },
@@ -283,7 +265,6 @@ export class MasterDataService {
     ]);
 
     return {
-      topics: topics.map((t) => ({ code: t.topicCode, label: t.topicName })),
       countries: countries.map((c) => ({
         code: c.countryCode,
         label: c.countryName,
@@ -320,13 +301,20 @@ export class MasterDataService {
       workAuthorisations,
       sources,
       countries,
+      experienceBands,
     ] = await Promise.all([
       this.qualificationRepo.find(live),
       this.noticePeriodRepo.find(live),
       this.workAuthRepo.find(live),
       this.applicationSourceRepo.find(live),
       this.countryRepo.find(live),
+      this.experienceBandRepo.find(live),
     ]);
+
+    const band = (b: ExperienceBandMaster) => ({
+      code: b.experienceBandCode,
+      label: b.experienceBandName,
+    });
 
     return {
       qualifications: qualifications.map((q) => ({
@@ -349,6 +337,10 @@ export class MasterDataService {
         code: c.countryCode,
         label: c.countryName,
       })),
+      experienceBands: experienceBands.map(band),
+      relevantExperienceBands: experienceBands
+        .filter((b) => b.availableForRelevant)
+        .map(band),
     };
   }
 
@@ -362,46 +354,159 @@ export class MasterDataService {
    * given are looked up — whether one SHOULD have been given is the
    * posting field config’s business, checked before this runs.
    */
+  /**
+   * The five coded answers on the kNODE demo form, checked before they are
+   * stored.
+   *
+   * None of them was checked at all — the submit wrote `dto.facilityTypeCode`
+   * and the rest straight onto the row. Every one of these masters is scoped
+   * by site, so an unchecked code can be not merely unknown but another
+   * brand's, which is how a crane industry ended up on an IT contact enquiry.
+   *
+   * Modules are checked by the caller, which needs the rows themselves; this
+   * covers the five that are stored as bare codes.
+   */
+  async assertKnodeDemoCodes(
+    codes: {
+      facilityTypeCode?: number | null;
+      bedBandCode?: number | null;
+      opdBandCode?: number | null;
+      contactRoleCode?: number | null;
+      callWindowCode?: number | null;
+    },
+    siteCode: number,
+  ): Promise<void> {
+    const live = { isActive: true, isDeleted: false, siteCode };
+
+    const [facilityType, bedBand, opdBand, contactRole, callWindow] =
+      await Promise.all([
+        codes.facilityTypeCode
+          ? this.knodeFacilityTypeRepo.findOne({
+              where: { facilityTypeCode: codes.facilityTypeCode, ...live },
+            })
+          : Promise.resolve(true),
+        codes.bedBandCode
+          ? this.knodeBedBandRepo.findOne({
+              where: { bedBandCode: codes.bedBandCode, ...live },
+            })
+          : Promise.resolve(true),
+        codes.opdBandCode
+          ? this.knodeOpdBandRepo.findOne({
+              where: { opdBandCode: codes.opdBandCode, ...live },
+            })
+          : Promise.resolve(true),
+        codes.contactRoleCode
+          ? this.knodeContactRoleRepo.findOne({
+              where: { contactRoleCode: codes.contactRoleCode, ...live },
+            })
+          : Promise.resolve(true),
+        codes.callWindowCode
+          ? this.knodeCallWindowRepo.findOne({
+              where: { callWindowCode: codes.callWindowCode, ...live },
+            })
+          : Promise.resolve(true),
+      ]);
+
+    const unknown: string[] = [];
+    if (!facilityType)
+      unknown.push(`facilityTypeCode ${codes.facilityTypeCode}`);
+    if (!bedBand) unknown.push(`bedBandCode ${codes.bedBandCode}`);
+    if (!opdBand) unknown.push(`opdBandCode ${codes.opdBandCode}`);
+    if (!contactRole) unknown.push(`contactRoleCode ${codes.contactRoleCode}`);
+    if (!callWindow) unknown.push(`callWindowCode ${codes.callWindowCode}`);
+
+    if (unknown.length > 0) {
+      throw new NotFoundException(`Unknown or inactive: ${unknown.join(', ')}`);
+    }
+  }
+
+  /**
+   * The three coded answers on the contact form, checked before they are
+   * stored.
+   *
+   * Nothing checked them at all, and the gap is not theoretical: three live
+   * IT enquiries carry `industryCode` 201, which is "Oil & Gas — Upstream"
+   * on the CRANE brand. The IT options list runs 101-109, so the panel had
+   * no label to show and printed the bare number.
+   *
+   * Industry is the only one scoped by site, and so the only one where a
+   * code can be real and still wrong. Countries and timelines are shared
+   * across the brands — they need to exist and be live, nothing more.
+   *
+   * NotFound rather than BadRequest, matching the sibling above: the code
+   * is well-formed, it just names nothing this form may offer.
+   */
+  async assertContactCodes(
+    codes: {
+      countryCode?: number | null;
+      industryCode?: number | null;
+      timelineCode?: number | null;
+    },
+    siteCode: number,
+  ): Promise<void> {
+    const live = { isActive: true, isDeleted: false };
+
+    const [country, industry, timeline] = await Promise.all([
+      codes.countryCode
+        ? this.countryRepo.findOne({
+            where: { countryCode: codes.countryCode, ...live },
+          })
+        : Promise.resolve(true),
+      codes.industryCode
+        ? this.industryRepo.findOne({
+            where: { industryCode: codes.industryCode, siteCode, ...live },
+          })
+        : Promise.resolve(true),
+      codes.timelineCode
+        ? this.timelineRepo.findOne({
+            where: { timelineCode: codes.timelineCode, ...live },
+          })
+        : Promise.resolve(true),
+    ]);
+
+    const unknown: string[] = [];
+    if (!country) unknown.push(`countryCode ${codes.countryCode}`);
+    if (!industry) unknown.push(`industryCode ${codes.industryCode}`);
+    if (!timeline) unknown.push(`timelineCode ${codes.timelineCode}`);
+
+    if (unknown.length > 0) {
+      throw new NotFoundException(`Unknown or inactive: ${unknown.join(', ')}`);
+    }
+  }
+
   async assertApplicationCodes(codes: {
     qualificationCode?: number | null;
     noticePeriodCode?: number | null;
     workAuthorisationCode?: number | null;
     sourceCode?: number | null;
-    countryCode?: number | null;
   }): Promise<void> {
     const live = { isActive: true, isDeleted: false };
 
-    const [qualification, noticePeriod, workAuth, source, country] =
-      await Promise.all([
-        codes.qualificationCode
-          ? this.qualificationRepo.findOne({
-              where: { qualificationCode: codes.qualificationCode, ...live },
-            })
-          : Promise.resolve(true),
-        codes.noticePeriodCode
-          ? this.noticePeriodRepo.findOne({
-              where: { noticePeriodCode: codes.noticePeriodCode, ...live },
-            })
-          : Promise.resolve(true),
-        codes.workAuthorisationCode
-          ? this.workAuthRepo.findOne({
-              where: {
-                workAuthorisationCode: codes.workAuthorisationCode,
-                ...live,
-              },
-            })
-          : Promise.resolve(true),
-        codes.sourceCode
-          ? this.applicationSourceRepo.findOne({
-              where: { sourceCode: codes.sourceCode, ...live },
-            })
-          : Promise.resolve(true),
-        codes.countryCode
-          ? this.countryRepo.findOne({
-              where: { countryCode: codes.countryCode, ...live },
-            })
-          : Promise.resolve(true),
-      ]);
+    const [qualification, noticePeriod, workAuth, source] = await Promise.all([
+      codes.qualificationCode
+        ? this.qualificationRepo.findOne({
+            where: { qualificationCode: codes.qualificationCode, ...live },
+          })
+        : Promise.resolve(true),
+      codes.noticePeriodCode
+        ? this.noticePeriodRepo.findOne({
+            where: { noticePeriodCode: codes.noticePeriodCode, ...live },
+          })
+        : Promise.resolve(true),
+      codes.workAuthorisationCode
+        ? this.workAuthRepo.findOne({
+            where: {
+              workAuthorisationCode: codes.workAuthorisationCode,
+              ...live,
+            },
+          })
+        : Promise.resolve(true),
+      codes.sourceCode
+        ? this.applicationSourceRepo.findOne({
+            where: { sourceCode: codes.sourceCode, ...live },
+          })
+        : Promise.resolve(true),
+    ]);
 
     const unknown: string[] = [];
     if (!qualification)
@@ -411,7 +516,6 @@ export class MasterDataService {
     if (!workAuth)
       unknown.push(`workAuthorisationCode ${codes.workAuthorisationCode}`);
     if (!source) unknown.push(`sourceCode ${codes.sourceCode}`);
-    if (!country) unknown.push(`countryCode ${codes.countryCode}`);
 
     if (unknown.length > 0) {
       throw new NotFoundException(`Unknown or inactive: ${unknown.join(', ')}`);
@@ -419,21 +523,65 @@ export class MasterDataService {
   }
 
   /**
-   * Topics are per-brand, so the brand is part of the lookup rather than
-   * something checked afterwards. A code belonging to another site is "unknown"
-   * here, which is the honest answer — from that site's form it does not exist.
+   * Validate the two experience bands and hand back the years they imply.
+   *
+   * Separate from assertApplicationCodes because this one has a return value.
+   * The application row stores both the band the candidate chose and the band's
+   * lower bound, and the bound has to come from the master rather than from a
+   * table of numbers kept in the service — one source, one place to edit.
+   *
+   * Fresher is refused on the relevant question. "No experience at all" and
+   * "none of it in this discipline" are different answers, and the second is
+   * what a zero here would claim.
    */
-  async findTopicOrFail(
-    topicCode: number,
-    siteCode: number,
-  ): Promise<EnquiryTopicMaster> {
-    const topic = await this.topicRepo.findOne({
-      where: { topicCode, siteCode, isActive: true, isDeleted: false },
-    });
-    if (!topic) {
-      throw new NotFoundException(`Unknown enquiry topic: ${topicCode}`);
+  async resolveExperienceBands(codes: {
+    experienceBandCode?: number | null;
+    relevantExperienceBandCode?: number | null;
+  }): Promise<{
+    experienceYears: number | null;
+    relevantExperienceYears: number | null;
+  }> {
+    const live = { isActive: true, isDeleted: false };
+
+    const [total, relevant] = await Promise.all([
+      codes.experienceBandCode
+        ? this.experienceBandRepo.findOne({
+            where: { experienceBandCode: codes.experienceBandCode, ...live },
+          })
+        : Promise.resolve(null),
+      codes.relevantExperienceBandCode
+        ? this.experienceBandRepo.findOne({
+            where: {
+              experienceBandCode: codes.relevantExperienceBandCode,
+              ...live,
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const unknown: string[] = [];
+    if (codes.experienceBandCode && !total)
+      unknown.push(`experienceBandCode ${codes.experienceBandCode}`);
+    if (codes.relevantExperienceBandCode && !relevant)
+      unknown.push(
+        `relevantExperienceBandCode ${codes.relevantExperienceBandCode}`,
+      );
+
+    if (unknown.length > 0) {
+      throw new NotFoundException(`Unknown or inactive: ${unknown.join(', ')}`);
     }
-    return topic;
+
+    if (relevant && !relevant.availableForRelevant) {
+      throw new BadRequestException(
+        `"${relevant.experienceBandName}" is not an option for relevant experience. ` +
+          'Leave it blank instead.',
+      );
+    }
+
+    return {
+      experienceYears: total ? total.minYears : null,
+      relevantExperienceYears: relevant ? relevant.minYears : null,
+    };
   }
 
   async findCountryOrFail(countryCode: number): Promise<CountryMaster> {

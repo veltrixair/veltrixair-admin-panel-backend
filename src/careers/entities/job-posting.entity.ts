@@ -14,6 +14,7 @@ import {
 } from 'typeorm';
 import { JobLocationMaster } from '../../master-data/entities/job-location-master.entity';
 import { OfficeMaster } from '../../master-data/entities/office-master.entity';
+import { JobCategoryMaster } from '../../master-data/entities/job-category-master.entity';
 import { PracticeAreaMaster } from '../../master-data/entities/practice-area-master.entity';
 import type { ApplicationFieldConfig } from '../../applications/application-fields.constants';
 
@@ -56,6 +57,23 @@ export class JobPosting {
   @Column({ name: 'description_mdx', type: 'text' })
   descriptionMdx: string;
 
+  /**
+   * Which careers page this posting appears on. NOT NULL deliberately — a
+   * posting with no category would be invisible on every page, which is a
+   * worse failure than being on the wrong one, because nothing shows it.
+   */
+  @Index('idx_job_postings_category_code')
+  @Column({ name: 'category_code', type: 'int' })
+  categoryCode: number;
+
+  @ManyToOne(() => JobCategoryMaster, { onDelete: 'RESTRICT' })
+  @JoinColumn({
+    name: 'category_code',
+    referencedColumnName: 'categoryCode',
+    foreignKeyConstraintName: 'vtx_job_postings_category_code_fk',
+  })
+  category?: JobCategoryMaster;
+
   @Column({ name: 'practice_code', type: 'int' })
   practiceCode: number;
 
@@ -85,8 +103,13 @@ export class JobPosting {
   locations?: JobLocationMaster[];
 
   /** The free-text line the card prints, e.g. "Riyadh / Dubai / Remote". */
-  @Column({ name: 'location_label', type: 'varchar', length: 150 })
-  locationLabel: string;
+  @Column({
+    name: 'location_label',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
+  locationLabel: string | null;
 
   @Column({ name: 'work_mode', type: 'varchar', length: 10 })
   workMode: WorkMode;
@@ -110,20 +133,6 @@ export class JobPosting {
   experienceLabel: string;
 
   /** Which of the three brands this row belongs to. */
-
-  /** Full job description in Markdown. Null until content is authored. */
-
-  // --- Classification ----------------------------------------------------
-
-  @Index('idx_job_postings_practice_code')
-  @Column({ name: 'visa_sponsorship', type: 'boolean', nullable: true })
-  visaSponsorship: boolean | null;
-
-  // --- Presentation ------------------------------------------------------
-
-  @Index('idx_job_postings_hot_role')
-  @Column({ name: 'hot_role', type: 'boolean', default: false })
-  hotRole: boolean;
 
   /**
    * Which questions this role asks its applicants, and which are required.

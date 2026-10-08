@@ -8,7 +8,12 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-/** Right-to-work status. Matters more here than at most firms: hiring spans Riyadh, Dubai and Bangalore, and job postings already carry a visaSponsorship flag. */
+/**
+ * Right-to-work status. Matters more here than at most firms: hiring spans
+ * Riyadh, Dubai and Bangalore, so what an applicant is already entitled to do
+ * is a real question rather than a formality. It is asked of the candidate —
+ * postings no longer carry a sponsorship flag of their own.
+ */
 @Entity({ name: 'work_authorisation_masters' })
 @Unique('vtx_work_authorisation_masters_work_authorisation_code_unique', [
   'workAuthorisationCode',

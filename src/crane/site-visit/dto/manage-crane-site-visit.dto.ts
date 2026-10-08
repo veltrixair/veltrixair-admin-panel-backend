@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  IsUUID,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import { ToBoolean } from '../../../common/transformers/to-boolean.transformer';
@@ -89,10 +90,11 @@ export class ScheduleCraneSiteVisitDto {
   )
   scheduledAt: string;
 
+  /** An engineer from the roster. Optional here — a date can be confirmed
+      before anybody is picked. */
   @IsOptional()
-  @IsString()
-  @MaxLength(150)
-  assignedEngineer?: string;
+  @IsUUID()
+  engineerId?: string;
 
   @IsOptional()
   @IsString()
@@ -100,11 +102,17 @@ export class ScheduleCraneSiteVisitDto {
   note?: string;
 }
 
+/**
+ * Assigning a visit, by roster id rather than by typed name.
+ *
+ * The column behind this used to be free text and still exists for the
+ * visits recorded that way. New assignments name a real engineer, so the
+ * same person is spelled the same way every time and the desk can see what
+ * each of them is carrying.
+ */
 export class AssignCraneSiteVisitDto {
-  @IsString()
-  @IsNotEmpty({ message: 'Provide the engineer to assign this to.' })
-  @MaxLength(150)
-  assignedEngineer: string;
+  @IsUUID('4', { message: 'Choose an engineer from the list.' })
+  engineerId: string;
 }
 
 export class AddCraneSiteVisitNoteDto {
